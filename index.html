@@ -582,17 +582,18 @@ body {
 /* ── History drawer (accordion) ── */
 .hist-entry { display:flex; flex-direction:column; }
 .hist-card { cursor:pointer; position:relative; }
-.hist-card .expand-icon { position:absolute; right:16px; top:50%; transform:translateY(-50%); color:var(--slate2); font-size:14px; transition:transform .3s; }
-.hist-card.open .expand-icon { transform:translateY(-50%) rotate(180deg); }
+.hist-card .expand-icon { color:var(--slate2); font-size:18px; transition:transform .35s cubic-bezier(.4,0,.2,1); flex-shrink:0; }
+.hist-card.open .expand-icon { transform:rotate(180deg); }
 .hist-drawer {
-  overflow:hidden; max-height:0;
-  transition:max-height .4s cubic-bezier(.4,0,.2,1), opacity .3s ease;
+  display:grid; grid-template-rows:0fr;
+  transition:grid-template-rows .4s cubic-bezier(.4,0,.2,1), opacity .3s ease;
   opacity:0; background:var(--bg2);
   border:1px solid var(--border); border-top:none;
-  border-radius:0 0 var(--radius) var(--radius);
-  margin-top:-8px; padding-top:8px;
+  border-radius:0 0 14px 14px;
+  margin-top:-10px;
 }
-.hist-drawer.open { max-height:520px; opacity:1; }
+.hist-drawer > div { overflow:hidden; }
+.hist-drawer.open { grid-template-rows:1fr; opacity:1; }
 .hist-drawer-inner { padding:16px; display:flex; flex-direction:column; gap:12px; }
 </style>
 </head>
@@ -1408,12 +1409,12 @@ function renderHistorico() {
   var sorted = state.history.slice().sort(function(a,b){ return b.month.localeCompare(a.month); });
   el.innerHTML = sorted.map(function(h) {
     var isSaved = h.saved >= 0;
-    var mid = 'hist-' + h.month.replace('-','');
-    return '<div class="hist-entry">'
-      + '<div class="hist-card" id="card-' + mid + '" onclick="toggleHistDrawer(' + JSON.stringify(mid) + ')">'
+    var mid = 'hist' + h.month.replace('-','');
+    return '<div class="hist-entry" data-mid="' + mid + '">'
+      + '<div class="hist-card" id="card-' + mid + '">'
         + '<div class="hist-month" style="display:flex;justify-content:space-between;align-items:center">'
-          + fmtMonth(h.month)
-          + '<span class="expand-icon" style="color:var(--slate2);font-size:14px;transition:transform .3s">▾</span>'
+          + '<span>' + fmtMonth(h.month) + '</span>'
+          + '<span class="expand-icon">▾</span>'
         + '</div>'
         + '<div class="hist-row"><span class="hist-label">Gasto</span><span class="hist-val">' + fmt(h.spent) + '</span></div>'
         + '<div class="hist-row"><span class="hist-label">Orçamento</span><span class="hist-val">' + fmt(h.budget) + '</span></div>'
@@ -1421,13 +1422,21 @@ function renderHistorico() {
       + '</div>'
       + '<div class="hist-drawer" id="drawer-' + mid + '">'
         + '<div class="hist-drawer-inner">'
-          + '<div style="height:180px"><canvas id="canvas-' + mid + '"></canvas></div>'
-          + '<div id="legend-' + mid + '" class="chart-legend" style="margin-top:10px"></div>'
+          + '<div style="height:190px;position:relative"><canvas id="canvas-' + mid + '"></canvas></div>'
+          + '<div id="legend-' + mid + '" class="chart-legend" style="margin-top:12px"></div>'
           + '<div id="breakdown-' + mid + '" style="margin-top:12px"></div>'
         + '</div>'
       + '</div>'
       + '</div>';
   }).join('');
+
+  // Bind click events after innerHTML is set (avoids quote issues in onclick)
+  el.querySelectorAll('.hist-entry').forEach(function(entry) {
+    var mid = entry.getAttribute('data-mid');
+    entry.querySelector('.hist-card').addEventListener('click', function() {
+      toggleHistDrawer(mid);
+    });
+  });
 }
 
 
@@ -1896,11 +1905,16 @@ function toggleHistDrawer(mid) {
   if (isOpen) return;
   card.classList.add('open');
   drawer.classList.add('open');
-  var month = mid.slice(0,4) + '-' + mid.slice(4);
+  var month = mid.slice(4,8) + '-' + mid.slice(8); // mid='hist202604'
   var h = state.history.find(function(x) { return x.month === month; });
   if (!h) return;
   if (histCharts[mid]) { histCharts[mid].destroy(); delete histCharts[mid]; }
   var breakdown = h.breakdown || [];
+  var hasBreakdown = breakdown.some(function(c) { return c.spent > 0; });
+  var bkEl2 = document.getElementById('breakdown-' + mid);
+  if (!hasBreakdown && bkEl2) {
+    bkEl2.innerHTML = '<div style="text-align:center;padding:8px;font-size:12px;color:var(--slate);font-style:italic">Breakdown não disponível para meses fechados antes da v2</div>';
+  }
   var labels=[],data=[],colors=[];
   breakdown.forEach(function(c,i) {
     if (c.spent > 0) { labels.push(c.icon+' '+c.name); data.push(c.spent); colors.push(c.color||catColor(i)); }
