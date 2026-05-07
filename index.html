@@ -1680,23 +1680,20 @@ window.addEventListener('popstate', function(e) {
   if (currentScreen === 'lancamentos' || currentScreen === 'historico') {
     navigate('dashboard', false); return;
   }
-  // On dashboard → double-back-to-exit (Instagram style)
+  // On dashboard → double-back-to-exit
   if (currentScreen === 'dashboard') {
-    if (isExiting) return; // ignore stray popstate while exiting
-    if (exitWarning) {
-      // Second press → exit for real
-      isExiting = true;
-      exitWarning = false;
-      clearTimeout(exitWarningTimer);
-      // history.back() with slight delay goes past base → Android closes PWA
-      setTimeout(function() { history.back(); }, 50);
-      return;
-    }
-    // First press → re-push dashboard state + show warning
-    history.pushState({ screen: 'dashboard' }, '');
+    // First press: DON'T re-push state → we're now at base [original-url]
+    // Show warning. If user presses back again within 2.5s, Android closes the PWA
+    // because there's nothing left in history.
+    // If timer expires without second press, re-push the guard state.
     exitWarning = true;
+    clearTimeout(exitWarningTimer);
     showToast('🔙 Pressiona novamente para sair');
-    exitWarningTimer = setTimeout(function() { exitWarning = false; }, 2500);
+    exitWarningTimer = setTimeout(function() {
+      exitWarning = false;
+      // Re-push guard so next back press shows warning again
+      history.pushState({ screen: 'dashboard' }, '');
+    }, 2500);
     return;
   }
 });
