@@ -953,6 +953,8 @@ let state = loadState();
 let editingId = null;
 let previousScreen = 'dashboard';
 let skipNextPopstate = false;
+let exitWarning = false;
+let exitWarningTimer = null;
 // Sync category icons/names from defaults (handles updates)
 DEFAULT_STATE.categories.forEach((def, i) => {
   if (state.categories[i]) state.categories[i].icon = def.icon;
@@ -1026,6 +1028,7 @@ function catColor(idx) {
 let currentScreen = 'dashboard';
 
 function navigate(screen, pushHistory) {
+  if (screen !== 'dashboard') { exitWarning = false; clearTimeout(exitWarningTimer); }
   // Push history state so Android back button works
   if (pushHistory !== false && screen !== 'dashboard') {
     history.pushState({ screen }, '');
@@ -1380,8 +1383,12 @@ function editEntry(id) {
 
 function cancelEdit() {
   editingId = null;
-  const t = document.getElementById('add-modal-title');
-  if(t) t.textContent = 'Novo Lançamento';
+  var t = document.getElementById('add-modal-title');
+  if (t) t.textContent = 'Novo Lançamento';
+  var btn = document.getElementById('submit-btn');
+  if (btn) { btn.textContent = '+ Adicionar'; btn.classList.remove('editing'); }
+  var cBtn = document.getElementById('cancel-edit-btn');
+  if (cBtn) cBtn.style.display = 'none';
   document.getElementById('inp-amount').value = '';
   document.getElementById('inp-notes').value = '';
   document.getElementById('submit-btn').textContent = '+ Adicionar Lançamento';
@@ -1671,7 +1678,21 @@ window.addEventListener('popstate', function(e) {
   if (currentScreen === 'lancamentos' || currentScreen === 'historico') {
     navigate('dashboard', false); return;
   }
-  // On dashboard → don't intercept, let Android exit the app naturally
+  // On dashboard → double-back-to-exit (Instagram style)
+  if (currentScreen === 'dashboard') {
+    if (exitWarning) {
+      // Second press → exit (let default happen, don't push state)
+      exitWarning = false;
+      clearTimeout(exitWarningTimer);
+      return;
+    }
+    // First press → show warning and push a new state to catch the second press
+    exitWarning = true;
+    showToast('🔙 Pressiona novamente para sair');
+    exitWarningTimer = setTimeout(function() { exitWarning = false; }, 2500);
+    history.pushState({ screen: 'dashboard-exit-warn' }, '');
+    return;
+  }
 });
 
 // ─── Budget edit ─────────────────────────────────────────────────
