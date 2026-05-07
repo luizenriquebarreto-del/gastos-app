@@ -1,145 +1,3 @@
-
-// ── History accordion ─────────────────────────────────────────────
-var histCharts = {};
-function toggleHistDrawer(mid) {
-  var card = document.getElementById('card-' + mid);
-  var drawer = document.getElementById('drawer-' + mid);
-  if (!card || !drawer) return;
-  var isOpen = drawer.classList.contains('open');
-  // Close all other drawers first
-  document.querySelectorAll('.hist-drawer.open').forEach(function(d) {
-    d.classList.remove('open');
-    var cid = d.id.replace('drawer-','');
-    var c = document.getElementById('card-' + cid);
-    if (c) c.classList.remove('open');
-  });
-  if (isOpen) return; // was open, now closed
-  card.classList.add('open');
-  drawer.classList.add('open');
-  // Render chart inside drawer
-  var month = mid.slice(0,4) + '-' + mid.slice(4);
-  var h = state.history.find(function(x) { return x.month === month; });
-  if (!h) return;
-  // Destroy old chart if exists
-  if (histCharts[mid]) { histCharts[mid].destroy(); delete histCharts[mid]; }
-  var breakdown = h.breakdown || [];
-  var labels=[],data=[],colors=[];
-  breakdown.forEach(function(c,i) {
-    if (c.spent > 0) { labels.push(c.icon+' '+c.name); data.push(c.spent); colors.push(c.color||catColor(i)); }
-  });
-  var remaining = Math.max(0, h.budget - h.spent);
-  if (remaining > 0) {
-    var pct = remaining / h.budget;
-    labels.push('Restante'); data.push(remaining);
-    colors.push(pct < 0.25 ? '#F43F5E' : pct < 0.5 ? '#F97316' : '#10B981');
-  }
-  document.getElementById('legend-' + mid).innerHTML = labels.map(function(l,i) {
-    return '<div class="legend-item"><div class="legend-dot" style="background:'+colors[i]+'"></div>'+l+'</div>';
-  }).join('');
-  document.getElementById('breakdown-' + mid).innerHTML = breakdown.filter(function(c){return c.spent>0;}).map(function(c) {
-    return '<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border);font-size:13px">'
-      + '<span>' + c.icon + ' ' + c.name + '</span>'
-      + '<strong style="font-variant-numeric:tabular-nums">' + fmt(c.spent) + '</strong></div>';
-  }).join('');
-  var ctx = document.getElementById('canvas-' + mid).getContext('2d');
-  if (data.length === 0) return;
-  histCharts[mid] = new Chart(ctx, {
-    type:'doughnut',
-    data:{labels:labels,datasets:[{data:data,backgroundColor:colors,borderWidth:0,hoverOffset:6}]},
-    options:{responsive:true,maintainAspectRatio:false,cutout:'60%',
-      plugins:{legend:{display:false},tooltip:{callbacks:{label:function(ctx){return ' '+ctx.label+': '+fmt(ctx.parsed);}},
-        backgroundColor:'#1E293B',titleColor:'#F8FAFC',bodyColor:'#94A3B8',padding:10,cornerRadius:10}}}
-  });
-}
-
-// ── History chart (accordion) ──────────────────────────────────
-let histPieChart = null;
-let openHistMonth = null;
-
-function toggleHistChart(month) {
-  if (openHistMonth === month) {
-    closeHistAccordion(month);
-    return;
-  }
-  if (openHistMonth) closeHistAccordion(openHistMonth);
-  openHistMonth = month;
-
-  const card = document.getElementById('hc-' + month);
-  const acc  = document.getElementById('ha-' + month);
-  const arrow = document.getElementById('hc-arrow-' + month);
-  if (!card || !acc) return;
-
-  card.classList.add('expanded');
-  acc.classList.add('open');
-  if (arrow) arrow.textContent = '˅';
-
-  // Draw chart after transition starts
-  setTimeout(function() { drawHistChart(month); }, 50);
-}
-
-function closeHistAccordion(month) {
-  const card  = document.getElementById('hc-' + month);
-  const acc   = document.getElementById('ha-' + month);
-  const arrow = document.getElementById('hc-arrow-' + month);
-  if (acc)  acc.classList.remove('open');
-  if (card) card.classList.remove('expanded');
-  if (arrow) arrow.textContent = '›';
-  if (histPieChart) { histPieChart.destroy(); histPieChart = null; }
-  openHistMonth = null;
-}
-
-function drawHistChart(month) {
-  const h = state.history.find(function(x) { return x.month === month; });
-  if (!h) return;
-
-  const breakdown = h.breakdown || [];
-  const labels=[], data=[], colors=[];
-  breakdown.forEach(function(c, i) {
-    if (c.spent > 0) {
-      labels.push(c.icon + ' ' + c.name);
-      data.push(c.spent);
-      colors.push(c.color || catColor(i));
-    }
-  });
-  const remaining = Math.max(0, h.budget - h.spent);
-  if (remaining > 0) {
-    const pct = remaining / h.budget;
-    labels.push('Restante');
-    data.push(remaining);
-    colors.push(pct < 0.25 ? '#F43F5E' : pct < 0.5 ? '#F97316' : '#10B981');
-  }
-
-  // Legend
-  const leg = document.getElementById('hleg-' + month);
-  if (leg) leg.innerHTML = labels.map(function(l,i) {
-    return '<div class="legend-item"><div class="legend-dot" style="background:' + colors[i] + '"></div>' + l + '</div>';
-  }).join('');
-
-  // Breakdown list
-  const bd = document.getElementById('hbd-' + month);
-  if (bd) bd.innerHTML = breakdown.filter(function(c){ return c.spent > 0; }).map(function(c) {
-    return '<div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border);font-size:13px">'
-      + '<span>' + c.icon + ' ' + c.name + '</span>'
-      + '<span style="font-weight:700;font-variant-numeric:tabular-nums">' + fmt(c.spent) + '</span></div>';
-  }).join('');
-
-  // Chart
-  const canvas = document.getElementById('hpc-' + month);
-  if (!canvas) return;
-  if (histPieChart) histPieChart.destroy();
-  if (data.length === 0) return;
-  histPieChart = new Chart(canvas.getContext('2d'), {
-    type:'doughnut',
-    data:{ labels:labels, datasets:[{ data:data, backgroundColor:colors, borderWidth:0, hoverOffset:6 }] },
-    options:{ responsive:true, maintainAspectRatio:false, cutout:'60%',
-      plugins:{ legend:{display:false},
-        tooltip:{ callbacks:{ label:function(ctx){ return ' ' + ctx.label + ': ' + fmt(ctx.parsed); } },
-          backgroundColor:'#1E293B', titleColor:'#F8FAFC', bodyColor:'#94A3B8', padding:10, cornerRadius:10 }
-      }
-    }
-  });
-}
-
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
@@ -2024,57 +1882,56 @@ function offerBioRegister() {
 setupBiometric();
 
 
-// ── History chart ─────────────────────────────────────────────────
-let histPieChart = null;
-function openHistChart(month) {
-  const h = state.history.find(x => x.month === month);
-  if (!h) return;
-  document.getElementById('hist-chart-title').textContent = fmtMonth(month);
-  document.getElementById('hist-chart-modal').classList.add('open');
 
-  const breakdown = h.breakdown || [];
-  const labels=[],data=[],colors=[];
-  breakdown.forEach((c,i) => {
-    if (c.spent > 0) {
-      labels.push(c.icon+' '+c.name); data.push(c.spent);
-      colors.push(c.color || catColor(i));
-    }
+
+// ── History accordion ────────────────────────────────────────────
+var histCharts = {};
+function toggleHistDrawer(mid) {
+  var card = document.getElementById('card-' + mid);
+  var drawer = document.getElementById('drawer-' + mid);
+  if (!card || !drawer) return;
+  var isOpen = drawer.classList.contains('open');
+  document.querySelectorAll('.hist-drawer.open').forEach(function(d) {
+    d.classList.remove('open');
+    var cid = d.id.replace('drawer-','');
+    var c2 = document.getElementById('card-' + cid);
+    if (c2) c2.classList.remove('open');
   });
-  const remaining = Math.max(0, h.budget - h.spent);
+  if (isOpen) return;
+  card.classList.add('open');
+  drawer.classList.add('open');
+  var month = mid.slice(0,4) + '-' + mid.slice(4);
+  var h = state.history.find(function(x) { return x.month === month; });
+  if (!h) return;
+  if (histCharts[mid]) { histCharts[mid].destroy(); delete histCharts[mid]; }
+  var breakdown = h.breakdown || [];
+  var labels=[],data=[],colors=[];
+  breakdown.forEach(function(c,i) {
+    if (c.spent > 0) { labels.push(c.icon+' '+c.name); data.push(c.spent); colors.push(c.color||catColor(i)); }
+  });
+  var remaining = Math.max(0, h.budget - h.spent);
   if (remaining > 0) {
-    const pct = remaining / h.budget;
-    labels.push('Restante');
-    data.push(remaining);
+    var pct = remaining / h.budget;
+    labels.push('Restante'); data.push(remaining);
     colors.push(pct < 0.25 ? '#F43F5E' : pct < 0.5 ? '#F97316' : '#10B981');
   }
-
-  // Legend
-  document.getElementById('hist-chart-legend').innerHTML = labels.map((l,i) =>
-    '<div class="legend-item"><div class="legend-dot" style="background:'+colors[i]+'"></div>'+l+'</div>').join('');
-
-  // Breakdown list
-  document.getElementById('hist-chart-breakdown').innerHTML = breakdown
-    .filter(c => c.spent > 0)
-    .map(c => '<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border)">'
-      + '<span style="font-size:14px">' + c.icon + ' ' + c.name + '</span>'
-      + '<span style="font-size:14px;font-weight:700;font-variant-numeric:tabular-nums">' + fmt(c.spent) + '</span>'
-      + '</div>').join('');
-
-  const ctx = document.getElementById('hist-pie-chart').getContext('2d');
-  if (histPieChart) histPieChart.destroy();
-  if (data.length === 0) return;
-  histPieChart = new Chart(ctx, {
+  var legendEl = document.getElementById('legend-' + mid);
+  if (legendEl) legendEl.innerHTML = labels.map(function(l,i) {
+    return '<div class="legend-item"><div class="legend-dot" style="background:'+colors[i]+'"></div>'+l+'</div>';
+  }).join('');
+  var bkEl = document.getElementById('breakdown-' + mid);
+  if (bkEl) bkEl.innerHTML = breakdown.filter(function(c){return c.spent>0;}).map(function(c) {
+    return '<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border);font-size:13px"><span>'+c.icon+' '+c.name+'</span><strong style="font-variant-numeric:tabular-nums">'+fmt(c.spent)+'</strong></div>';
+  }).join('');
+  var canvasEl = document.getElementById('canvas-' + mid);
+  if (!canvasEl || data.length === 0) return;
+  histCharts[mid] = new Chart(canvasEl.getContext('2d'), {
     type:'doughnut',
-    data:{ labels, datasets:[{ data, backgroundColor:colors, borderWidth:0, hoverOffset:6 }] },
-    options:{ responsive:true, maintainAspectRatio:false, cutout:'60%',
-      plugins:{ legend:{display:false}, tooltip:{ callbacks:{ label: ctx => ' '+ctx.label+': '+fmt(ctx.parsed) },
-        backgroundColor:'#1E293B',titleColor:'#F8FAFC',bodyColor:'#94A3B8',padding:10,cornerRadius:10 }}
-    }
+    data:{labels:labels,datasets:[{data:data,backgroundColor:colors,borderWidth:0,hoverOffset:6}]},
+    options:{responsive:true,maintainAspectRatio:false,cutout:'60%',
+      plugins:{legend:{display:false},tooltip:{callbacks:{label:function(ctx){return ' '+ctx.label+': '+fmt(ctx.parsed);}},
+        backgroundColor:'#1E293B',titleColor:'#F8FAFC',bodyColor:'#94A3B8',padding:10,cornerRadius:10}}}
   });
-}
-function closeHistChart() {
-  document.getElementById('hist-chart-modal').classList.remove('open');
-  if (histPieChart) { histPieChart.destroy(); histPieChart = null; }
 }
 
 // ═══════════════════════════════════════════════════════
