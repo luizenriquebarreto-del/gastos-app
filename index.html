@@ -557,7 +557,7 @@ body {
   cursor:pointer; transition:all .2s; display:flex; align-items:center; justify-content:center; gap:8px;
 }
 .lanc-action-bar .btn-add { background:var(--indigo); color:white; box-shadow:0 6px 20px rgba(99,102,241,.3); }
-.lanc-action-bar .btn-filter { background:#1E293B; color:#94A3B8; border:1px solid rgba(255,255,255,.1); }
+.lanc-action-bar .btn-filter { background-color:#1E293B !important; color:#94A3B8; border:1px solid rgba(255,255,255,.15); opacity:1; }
 .lanc-action-bar .btn-filter.active { background:rgba(99,102,241,.15); color:var(--indigo-l); border-color:var(--indigo); }
 .lanc-action-bar .btn-add:active, .lanc-action-bar .btn-filter:active { transform:scale(.96); }
 </style>
@@ -696,16 +696,20 @@ body {
     <div class="add-modal-title">Filtrar Lançamentos</div>
     <div style="display:flex;flex-direction:column;gap:16px">
       <div>
-        <div class="form-label" style="margin-bottom:10px">Categoria</div>
-        <div class="filter-chips" id="filter-chips"></div>
+        <div class="form-label" style="margin-bottom:10px">Categorias <span style="color:var(--slate);font-weight:400">(podes escolher várias)</span></div>
+        <div class="filter-chips" id="filter-chips" style="flex-wrap:wrap"></div>
       </div>
       <div>
-        <div class="form-label" style="margin-bottom:10px">Data</div>
-        <input type="date" class="form-input" id="filter-date" onchange="applyFilters()">
+        <div class="form-label" style="margin-bottom:10px">Período</div>
+        <div style="display:flex;gap:10px;align-items:center">
+          <input type="date" class="form-input" id="filter-date-from" placeholder="De" style="flex:1">
+          <span style="color:var(--slate);font-size:13px;flex-shrink:0">até</span>
+          <input type="date" class="form-input" id="filter-date-to" placeholder="Até" style="flex:1">
+        </div>
       </div>
       <div style="display:flex;gap:10px">
         <button onclick="clearFilters()" class="cancel-edit-btn" style="flex:1">✕ Limpar</button>
-        <button onclick="closeFilterModal()" class="submit-btn" style="flex:1">✓ Aplicar</button>
+        <button onclick="applyAndCloseFilter()" class="submit-btn" style="flex:1">✓ Aplicar</button>
       </div>
     </div>
   </div>
@@ -847,6 +851,21 @@ body {
   </div>
 </div>
 
+
+<!-- History chart modal -->
+<div class="modal-backdrop" id="hist-chart-modal" onclick="if(event.target===this)closeHistChart()">
+  <div class="modal" style="max-height:85vh;overflow-y:auto">
+    <div class="modal-handle"></div>
+    <div class="modal-title" id="hist-chart-title"></div>
+    <div style="margin-bottom:12px">
+      <div class="chart-container" style="height:200px"><canvas id="hist-pie-chart"></canvas></div>
+      <div class="chart-legend" id="hist-chart-legend" style="margin-top:12px"></div>
+    </div>
+    <div id="hist-chart-breakdown" style="display:flex;flex-direction:column;gap:8px;margin-bottom:16px"></div>
+    <button class="modal-btn-cancel" onclick="closeHistChart()" style="width:100%">Fechar</button>
+  </div>
+</div>
+
 <!-- Toast -->
 <div class="toast" id="toast"></div>
 
@@ -910,7 +929,8 @@ function saveState() {
 
 let state = loadState();
 let editingId = null;
-let previousScreen = 'dashboard'; // screen before opening settings
+let previousScreen = 'dashboard';
+let skipNextPopstate = false;
 // Sync category icons/names from defaults (handles updates)
 DEFAULT_STATE.categories.forEach((def, i) => {
   if (state.categories[i]) state.categories[i].icon = def.icon;
@@ -1144,8 +1164,9 @@ function renderChart(totals) {
 // ═══════════════════════════════════════════════════════
 //  LANÇAMENTOS
 // ═══════════════════════════════════════════════════════
-let filterCat = null;  // null = all
-let filterDate = '';
+let filterCats = []; // array of selected categories
+let filterDateFrom = '';
+let filterDateTo = '';
 
 let filtersOpen = false;
 
@@ -1157,7 +1178,7 @@ function openAddModal() {
   document.getElementById('add-modal').classList.add('open');
 }
 function closeAddModal(fromBack) {
-  if (!fromBack) history.back();
+  if (!fromBack) { skipNextPopstate = true; history.back(); }
   document.getElementById('add-modal').classList.remove('open');
   if (!editingId) { cancelEdit(); }
 }
@@ -1166,14 +1187,16 @@ function handleAddModalClick(e) { if (e.target===document.getElementById('add-mo
 function openFilterModal() {
   history.pushState({ modal: 'filter' }, '');
   renderFilterChips();
-  const fd = document.getElementById('filter-date');
-  if (fd) fd.value = filterDate || '';
+  const ff = document.getElementById('filter-date-from');
+  const ft = document.getElementById('filter-date-to');
+  if (ff) ff.value = filterDateFrom || '';
+  if (ft) ft.value = filterDateTo || '';
   document.getElementById('filter-modal').classList.add('open');
   const btn = document.getElementById('filter-action-btn');
   if (btn) btn.classList.add('active');
 }
 function closeFilterModal(fromBack) {
-  if (!fromBack) history.back();
+  if (!fromBack) { skipNextPopstate = true; history.back(); }
   document.getElementById('filter-modal').classList.remove('open');
   renderEntryList();
   updateFilterBtn();
@@ -1192,28 +1215,40 @@ function updateFilterBtn() {
 function renderFilterChips() {
   const el = document.getElementById('filter-chips');
   if (!el) return;
-  const chips = [{ name:'Todas', val:null }, ...state.categories.map(c => ({ name:c.icon+' '+c.name, val:c.name }))];
-  el.innerHTML = chips.map(c => `
-    <button class="chip ${filterCat===c.val?'active':''}" onclick="setFilterCat(${c.val===null?'null':"'"+c.val+"'"})">
-      ${c.name}
-    </button>`).join('');
+  el.innerHTML = state.categories.map(function(c) {
+    const active = filterCats.includes(c.name);
+    return '<button class="chip ' + (active ? 'active' : '') + '" onclick="toggleFilterCat('' + c.name + '')">' + c.icon + ' ' + c.name + '</button>';
+  }).join('');
 }
 
-function setFilterCat(val) { filterCat = val; renderFilterChips(); renderEntryList(); updateFilterBtn(); }
-function applyFilters() { filterDate = document.getElementById('filter-date').value; renderEntryList(); updateFilterBtn(); }
+function toggleFilterCat(name) {
+  const idx = filterCats.indexOf(name);
+  if (idx >= 0) filterCats.splice(idx, 1); else filterCats.push(name);
+  renderFilterChips();
+}
+
+function applyFilters() {}
+
+function applyAndCloseFilter() {
+  filterDateFrom = (document.getElementById('filter-date-from') || {}).value || '';
+  filterDateTo   = (document.getElementById('filter-date-to')   || {}).value || '';
+  closeFilterModal();
+}
+
 function clearFilters() {
-  filterCat = null; filterDate = '';
-  document.getElementById('filter-date').value = '';
+  filterCats = []; filterDateFrom = ''; filterDateTo = '';
+  var ff = document.getElementById('filter-date-from');
+  var ft = document.getElementById('filter-date-to');
+  if (ff) ff.value = ''; if (ft) ft.value = '';
   renderFilterChips(); renderEntryList(); updateFilterBtn();
 }
+
 function updateFilterBtn() {
-  if (!filtersOpen) {
-    const lbl = document.getElementById('filter-btn-label');
-    const activeCount = (filterCat ? 1 : 0) + (filterDate ? 1 : 0);
-    if (lbl) lbl.textContent = activeCount ? 'Filtros ativos ('+activeCount+')' : 'Filtrar';
-    const btn = document.getElementById('filter-toggle-btn');
-    if (btn) { btn.style.background = activeCount ? 'rgba(99,102,241,.15)' : 'var(--bg2)'; btn.style.color = activeCount ? 'var(--indigo-l)' : 'var(--slate)'; }
-  }
+  const btn = document.getElementById('filter-action-btn');
+  if (!btn) return;
+  const n = filterCats.length + (filterDateFrom ? 1 : 0) + (filterDateTo ? 1 : 0);
+  btn.classList.toggle('active', n > 0);
+  btn.textContent = n ? '🔍 Filtro (' + n + ')' : '🔍 Filtro';
 }
 
 function renderLancamentos() {
@@ -1231,8 +1266,9 @@ function renderLancamentos() {
 
 function renderEntryList() {
   let filtered = state.entries;
-  if (filterCat) filtered = filtered.filter(e => e.category === filterCat);
-  if (filterDate) filtered = filtered.filter(e => e.date === filterDate);
+  if (filterCats.length) filtered = filtered.filter(e => filterCats.includes(e.category));
+  if (filterDateFrom) filtered = filtered.filter(e => e.date >= filterDateFrom);
+  if (filterDateTo)   filtered = filtered.filter(e => e.date <= filterDateTo);
   const origOrder = Object.fromEntries(filtered.map((e,i) => [e.id, i]));
   const sorted = [...filtered].sort((a,b) => {
     const dc = b.date.localeCompare(a.date);
@@ -1350,7 +1386,7 @@ function renderHistorico() {
   el.innerHTML = sorted.map(h => {
     const isSaved = h.saved >= 0;
     return `
-    <div class="hist-card">
+    <div class="hist-card" onclick="openHistChart("${h.month}")" style="cursor:pointer">
       <div class="hist-month">${fmtMonth(h.month)}</div>
       <div class="hist-row">
         <span class="hist-label">Gasto</span>
@@ -1400,7 +1436,9 @@ function confirmCloseMonth() {
   const saved = totalSaved();
 
   // Save to history
-  state.history.push({ month:state.currentMonth, spent, budget, saved });
+  const catTotals = getCategoryTotals();
+  const breakdown = state.categories.map(c => ({ name:c.name, icon:c.icon, color:c.color, spent:Math.max(0,catTotals[c.name]||0) }));
+  state.history.push({ month:state.currentMonth, spent, budget, saved, breakdown });
 
   // Advance month
   const [y, m] = state.currentMonth.split('-').map(Number);
@@ -1573,6 +1611,7 @@ function deleteEditCategory() {
 
 // ── Android back button ─────────────────────────────────────────
 window.addEventListener('popstate', function(e) {
+  if (skipNextPopstate) { skipNextPopstate = false; return; }
   // Close modals first
   const addM = document.getElementById('add-modal');
   const filM = document.getElementById('filter-modal');
@@ -1813,6 +1852,60 @@ function offerBioRegister() {
 
 // Init lock screen
 setupBiometric();
+
+
+// ── History chart ─────────────────────────────────────────────────
+let histPieChart = null;
+function openHistChart(month) {
+  const h = state.history.find(x => x.month === month);
+  if (!h) return;
+  document.getElementById('hist-chart-title').textContent = fmtMonth(month);
+  document.getElementById('hist-chart-modal').classList.add('open');
+
+  const breakdown = h.breakdown || [];
+  const labels=[],data=[],colors=[];
+  breakdown.forEach((c,i) => {
+    if (c.spent > 0) {
+      labels.push(c.icon+' '+c.name); data.push(c.spent);
+      colors.push(c.color || catColor(i));
+    }
+  });
+  const remaining = Math.max(0, h.budget - h.spent);
+  if (remaining > 0) {
+    const pct = remaining / h.budget;
+    labels.push('Restante');
+    data.push(remaining);
+    colors.push(pct < 0.25 ? '#F43F5E' : pct < 0.5 ? '#F97316' : '#10B981');
+  }
+
+  // Legend
+  document.getElementById('hist-chart-legend').innerHTML = labels.map((l,i) =>
+    '<div class="legend-item"><div class="legend-dot" style="background:'+colors[i]+'"></div>'+l+'</div>').join('');
+
+  // Breakdown list
+  document.getElementById('hist-chart-breakdown').innerHTML = breakdown
+    .filter(c => c.spent > 0)
+    .map(c => '<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border)">'
+      + '<span style="font-size:14px">' + c.icon + ' ' + c.name + '</span>'
+      + '<span style="font-size:14px;font-weight:700;font-variant-numeric:tabular-nums">' + fmt(c.spent) + '</span>'
+      + '</div>').join('');
+
+  const ctx = document.getElementById('hist-pie-chart').getContext('2d');
+  if (histPieChart) histPieChart.destroy();
+  if (data.length === 0) return;
+  histPieChart = new Chart(ctx, {
+    type:'doughnut',
+    data:{ labels, datasets:[{ data, backgroundColor:colors, borderWidth:0, hoverOffset:6 }] },
+    options:{ responsive:true, maintainAspectRatio:false, cutout:'60%',
+      plugins:{ legend:{display:false}, tooltip:{ callbacks:{ label: ctx => ' '+ctx.label+': '+fmt(ctx.parsed) },
+        backgroundColor:'#1E293B',titleColor:'#F8FAFC',bodyColor:'#94A3B8',padding:10,cornerRadius:10 }}
+    }
+  });
+}
+function closeHistChart() {
+  document.getElementById('hist-chart-modal').classList.remove('open');
+  if (histPieChart) { histPieChart.destroy(); histPieChart = null; }
+}
 
 // ═══════════════════════════════════════════════════════
 //  INIT
