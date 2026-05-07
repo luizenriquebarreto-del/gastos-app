@@ -1760,12 +1760,11 @@ function unlock() {
   const ls = document.getElementById('lock-screen');
   ls.classList.add('hidden');
   setTimeout(() => ls.style.display = 'none', 350);
-  // Re-push guard if it was consumed during auth flow
-  setTimeout(function() {
-    if (!history.state || !history.state.screen) {
-      history.pushState({ screen: 'dashboard' }, '');
-    }
-  }, 400);
+  // Ensure guard is present immediately (no delay)
+  // Covers edge cases where Samsung biometric prompt consumed the guard
+  if (!history.state || !history.state.screen) {
+    history.pushState({ screen: 'dashboard' }, '');
+  }
 }
 
 function showLockPin() {
