@@ -1213,11 +1213,12 @@ function updateFilterBtn() {
 
 
 function renderFilterChips() {
-  const el = document.getElementById('filter-chips');
+  var el = document.getElementById('filter-chips');
   if (!el) return;
   el.innerHTML = state.categories.map(function(c) {
-    const active = filterCats.includes(c.name);
-    return '<button class="chip ' + (active ? 'active' : '') + '" onclick="toggleFilterCat('' + c.name + '')">' + c.icon + ' ' + c.name + '</button>';
+    var active = filterCats.indexOf(c.name) >= 0;
+    var cls = active ? 'chip active' : 'chip';
+    return '<button class="' + cls + '" onclick="toggleFilterCat(' + JSON.stringify(c.name) + ')">' + c.icon + ' ' + c.name + '</button>';
   }).join('');
 }
 
