@@ -955,6 +955,7 @@ let previousScreen = 'dashboard';
 let skipNextPopstate = false;
 let exitWarning = false;
 let exitWarningTimer = null;
+let isExiting = false;
 // Sync category icons/names from defaults (handles updates)
 DEFAULT_STATE.categories.forEach((def, i) => {
   if (state.categories[i]) state.categories[i].icon = def.icon;
@@ -1029,6 +1030,7 @@ let currentScreen = 'dashboard';
 
 function navigate(screen, pushHistory) {
   if (screen !== 'dashboard') { exitWarning = false; clearTimeout(exitWarningTimer); }
+  isExiting = false;
   // Push history state so Android back button works
   if (pushHistory !== false && screen !== 'dashboard') {
     history.pushState({ screen }, '');
@@ -1680,18 +1682,21 @@ window.addEventListener('popstate', function(e) {
   }
   // On dashboard → double-back-to-exit (Instagram style)
   if (currentScreen === 'dashboard') {
+    if (isExiting) return; // ignore stray popstate while exiting
     if (exitWarning) {
-      // Second press → really exit (go back past our initial pushState)
+      // Second press → exit for real
+      isExiting = true;
       exitWarning = false;
       clearTimeout(exitWarningTimer);
-      history.go(-1); // go back past the initial pushed state → exits PWA
+      // history.back() with slight delay goes past base → Android closes PWA
+      setTimeout(function() { history.back(); }, 50);
       return;
     }
-    // First press → show warning and push a new state to catch the second press
+    // First press → re-push dashboard state + show warning
+    history.pushState({ screen: 'dashboard' }, '');
     exitWarning = true;
     showToast('🔙 Pressiona novamente para sair');
     exitWarningTimer = setTimeout(function() { exitWarning = false; }, 2500);
-    history.pushState({ screen: 'dashboard-exit-warn' }, '');
     return;
   }
 });
