@@ -1947,6 +1947,27 @@ function toggleHistDrawer(mid) {
 // ═══════════════════════════════════════════════════════
 //  INIT
 // ═══════════════════════════════════════════════════════
+
+// ── REVERT TO MAY 2026 FOR TESTING ──────────────────────
+state.currentMonth = '2026-05';
+state.history = state.history.filter(function(h) { return h.month !== '2026-05'; });
+state.entries = [
+  { id:'e1',  date:'2026-05-01', category:'Compras', amount:1.15,   notes:''                        },
+  { id:'e2',  date:'2026-05-01', category:'Outros',  amount:9.50,   notes:'alcool'                  },
+  { id:'e3',  date:'2026-05-01', category:'Outros',  amount:-3.00,  notes:'pix soph'                },
+  { id:'e4',  date:'2026-05-02', category:'Mercado', amount:42.12,  notes:'U'                       },
+  { id:'e5',  date:'2026-05-02', category:'Outros',  amount:-1.70,  notes:'pix re'                  },
+  { id:'e6',  date:'2026-05-03', category:'Outros',  amount:23.00,  notes:'chat'                    },
+  { id:'e7',  date:'2026-05-04', category:'Aluguel', amount:475.00, notes:''                        },
+  { id:'e8',  date:'2026-05-05', category:'Outros',  amount:-51.61, notes:'pix vovo'                },
+  { id:'e9',  date:'2026-05-06', category:'Outros',  amount:62.35,  notes:'energia+aluguel+wifi'    },
+  { id:'e10', date:'2026-05-06', category:'Outros',  amount:-13.00, notes:'energia+aluguel+wifi re' },
+  { id:'e11', date:'2026-05-07', category:'Outros',  amount:-47.33, notes:'pix erick'               }
+];
+state.prevMonthSaved = 522.20;
+saveState();
+// ────────────────────────────────────────────────────────
+
 renderDashboard();
 </script>
 </body>
