@@ -773,7 +773,7 @@ body {
       <div class="header-title">⚙️ Configurações</div>
       <div class="header-month">Categorias & tetos</div>
     </div>
-    <button class="header-btn" onclick="navigate('dashboard')">✕</button>
+    <button class="header-btn" onclick="history.back()">✕</button>
   </div>
   <div class="section-hdr" style="padding-top:16px">
     <span class="section-title">Categorias</span>
@@ -787,7 +787,7 @@ body {
     <div>
       <div class="header-title">Nova Categoria</div>
     </div>
-    <button class="header-btn" onclick="navigate('settings')">✕</button>
+    <button class="header-btn" onclick="history.back()">✕</button>
   </div>
   <div class="edit-screen-wrap">
     <div class="edit-field-group">
@@ -817,7 +817,7 @@ body {
     <div>
       <div class="header-title" id="edit-cat-title">Editar Categoria</div>
     </div>
-    <button class="header-btn" onclick="navigate('settings')">✕</button>
+    <button class="header-btn" onclick="history.back()">✕</button>
   </div>
   <div class="edit-screen-wrap">
     <div class="edit-field-group">
@@ -1654,6 +1654,12 @@ function deleteEditCategory() {
 // ── Android back button ─────────────────────────────────────────
 window.addEventListener('popstate', function(e) {
   if (skipNextPopstate) { skipNextPopstate = false; return; }
+  // If lock screen is still visible, re-push guard and ignore
+  var ls = document.getElementById('lock-screen');
+  if (ls && ls.style.display !== 'none' && !ls.classList.contains('hidden')) {
+    history.pushState({ screen: 'dashboard' }, '');
+    return;
+  }
   // Close modals first
   const addM = document.getElementById('add-modal');
   const filM = document.getElementById('filter-modal');
@@ -1675,24 +1681,32 @@ window.addEventListener('popstate', function(e) {
     navigate('settings', false); return;
   }
   if (currentScreen === 'settings') {
-    navigate(previousScreen, false); return;   // go back to wherever user came from
+    navigate(previousScreen, false);
+    if (previousScreen === 'dashboard') history.pushState({ screen: 'dashboard' }, '');
+    return;
   }
   if (currentScreen === 'lancamentos' || currentScreen === 'historico') {
-    navigate('dashboard', false); return;
+    navigate('dashboard', false);
+    history.pushState({ screen: 'dashboard' }, ''); // ensure guard
+    return;
   }
   // On dashboard → double-back-to-exit
   if (currentScreen === 'dashboard') {
-    // First press: DON'T re-push state → we're now at base [original-url]
-    // Show warning. If user presses back again within 2.5s, Android closes the PWA
-    // because there's nothing left in history.
-    // If timer expires without second press, re-push the guard state.
+    if (exitWarning) {
+      // Second swipe: guard was just consumed, we're at [base].
+      // Reset flag and do nothing — next swipe closes PWA naturally.
+      exitWarning = false;
+      clearTimeout(exitWarningTimer);
+      return;
+    }
+    // First swipe: show warning. Guard state is now consumed (we're at base).
+    // If user swipes again within 2.5s → exitWarning=true → returns → Android closes.
+    // If user doesn't swipe → timer re-pushes guard for next time.
     exitWarning = true;
-    clearTimeout(exitWarningTimer);
     showToast('🔙 Pressiona novamente para sair');
     exitWarningTimer = setTimeout(function() {
       exitWarning = false;
-      // Re-push guard so next back press shows warning again
-      history.pushState({ screen: 'dashboard' }, '');
+      history.pushState({ screen: 'dashboard' }, ''); // restore guard
     }, 2500);
     return;
   }
@@ -1746,6 +1760,12 @@ function unlock() {
   const ls = document.getElementById('lock-screen');
   ls.classList.add('hidden');
   setTimeout(() => ls.style.display = 'none', 350);
+  // Re-push guard if it was consumed during auth flow
+  setTimeout(function() {
+    if (!history.state || !history.state.screen) {
+      history.pushState({ screen: 'dashboard' }, '');
+    }
+  }, 400);
 }
 
 function showLockPin() {
