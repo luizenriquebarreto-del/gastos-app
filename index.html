@@ -910,6 +910,7 @@ function saveState() {
 
 let state = loadState();
 let editingId = null;
+let previousScreen = 'dashboard'; // screen before opening settings
 // Sync category icons/names from defaults (handles updates)
 DEFAULT_STATE.categories.forEach((def, i) => {
   if (state.categories[i]) state.categories[i].icon = def.icon;
@@ -1005,7 +1006,7 @@ function navigate(screen, pushHistory) {
   window.scrollTo(0, 0);
 }
 
-function goSettings() { navigate('settings'); }
+function goSettings() { previousScreen = currentScreen; navigate('settings'); }
 
 // ═══════════════════════════════════════════════════════
 //  DASHBOARD
@@ -1592,10 +1593,13 @@ window.addEventListener('popstate', function(e) {
   if (currentScreen === 'add-cat' || currentScreen === 'edit-cat') {
     navigate('settings', false); return;
   }
-  if (currentScreen !== 'dashboard') {
+  if (currentScreen === 'settings') {
+    navigate(previousScreen, false); return;   // go back to wherever user came from
+  }
+  if (currentScreen === 'lancamentos' || currentScreen === 'historico') {
     navigate('dashboard', false); return;
   }
-  // On dashboard → let it exit naturally (don't push state)
+  // On dashboard → don't intercept, let Android exit the app naturally
 });
 
 // ─── Budget edit ─────────────────────────────────────────────────
