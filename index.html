@@ -547,7 +547,7 @@ body {
 
 /* ── Lancamentos action bar (fixed above nav) ── */
 .lanc-action-bar {
-  position:fixed; bottom:calc(64px + var(--safe-b)); left:50%; transform:translateX(-50%);
+  position:fixed; bottom:calc(76px + var(--safe-b)); left:50%; transform:translateX(-50%);
   width:calc(100% - 32px); max-width:398px;
   display:flex; gap:10px; z-index:50;
 }
@@ -557,7 +557,7 @@ body {
   cursor:pointer; transition:all .2s; display:flex; align-items:center; justify-content:center; gap:8px;
 }
 .lanc-action-bar .btn-add { background:var(--indigo); color:white; box-shadow:0 6px 20px rgba(99,102,241,.3); }
-.lanc-action-bar .btn-filter { background:var(--bg2); color:var(--slate); border:1px solid var(--border); }
+.lanc-action-bar .btn-filter { background:#1E293B; color:#94A3B8; border:1px solid rgba(255,255,255,.1); }
 .lanc-action-bar .btn-filter.active { background:rgba(99,102,241,.15); color:var(--indigo-l); border-color:var(--indigo); }
 .lanc-action-bar .btn-add:active, .lanc-action-bar .btn-filter:active { transform:scale(.96); }
 </style>
@@ -642,6 +642,7 @@ body {
       <div class="header-title">📋 Lançamentos</div>
       <div class="header-month" id="hdr-month2"></div>
     </div>
+    <button class="header-btn" onclick="goSettings()" title="Configurações">⚙️</button>
   </div>
   <div class="section-hdr" style="padding-top:12px">
     <span class="section-title">Histórico do Mês</span>
@@ -717,6 +718,7 @@ body {
       <div class="header-title">📅 Histórico</div>
       <div class="header-month">Meses anteriores</div>
     </div>
+    <button class="header-btn" onclick="goSettings()" title="Configurações">⚙️</button>
   </div>
   <div class="section-hdr" style="padding-top:16px">
     <span class="section-title">Meses Fechados</span>
@@ -888,7 +890,16 @@ const DEFAULT_STATE = {
 function loadState() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    return raw ? JSON.parse(raw) : JSON.parse(JSON.stringify(DEFAULT_STATE));
+    if (!raw) return JSON.parse(JSON.stringify(DEFAULT_STATE));
+    const s = JSON.parse(raw);
+    // Lock in monthlyBudget if not yet set (so category additions don't change it)
+    if (s.monthlyBudget == null) {
+      s.monthlyBudget = s.categories
+        ? s.categories.reduce((sum, c) => sum + (c.budget || 0), 0)
+        : 1270;
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(s));
+    }
+    return s;
   } catch(e) {
     return JSON.parse(JSON.stringify(DEFAULT_STATE));
   }
@@ -971,7 +982,11 @@ function catColor(idx) {
 // ═══════════════════════════════════════════════════════
 let currentScreen = 'dashboard';
 
-function navigate(screen) {
+function navigate(screen, pushHistory) {
+  // Push history state so Android back button works
+  if (pushHistory !== false && screen !== 'dashboard') {
+    history.pushState({ screen }, '');
+  }
   document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
   document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
   document.getElementById('screen-' + screen).classList.add('active');
@@ -1134,18 +1149,21 @@ let filterDate = '';
 let filtersOpen = false;
 
 function openAddModal() {
+  history.pushState({ modal: 'add' }, '');
   const today = new Date().toISOString().slice(0,10);
   const inp = document.getElementById('inp-date');
   if (inp && !editingId) inp.value = today;
   document.getElementById('add-modal').classList.add('open');
 }
-function closeAddModal() {
+function closeAddModal(fromBack) {
+  if (!fromBack) history.back();
   document.getElementById('add-modal').classList.remove('open');
   if (!editingId) { cancelEdit(); }
 }
 function handleAddModalClick(e) { if (e.target===document.getElementById('add-modal')) closeAddModal(); }
 
 function openFilterModal() {
+  history.pushState({ modal: 'filter' }, '');
   renderFilterChips();
   const fd = document.getElementById('filter-date');
   if (fd) fd.value = filterDate || '';
@@ -1153,7 +1171,8 @@ function openFilterModal() {
   const btn = document.getElementById('filter-action-btn');
   if (btn) btn.classList.add('active');
 }
-function closeFilterModal() {
+function closeFilterModal(fromBack) {
+  if (!fromBack) history.back();
   document.getElementById('filter-modal').classList.remove('open');
   renderEntryList();
   updateFilterBtn();
@@ -1549,6 +1568,35 @@ function deleteEditCategory() {
 
 
 
+
+
+// ── Android back button ─────────────────────────────────────────
+window.addEventListener('popstate', function(e) {
+  // Close modals first
+  const addM = document.getElementById('add-modal');
+  const filM = document.getElementById('filter-modal');
+  if (addM && addM.classList.contains('open')) {
+    addM.classList.remove('open');
+    if (!editingId) cancelEdit();
+    return;
+  }
+  if (filM && filM.classList.contains('open')) {
+    filM.classList.remove('open');
+    renderEntryList();
+    updateFilterBtn();
+    const btn = document.getElementById('filter-action-btn');
+    if (btn) btn.classList.remove('active');
+    return;
+  }
+  // Navigate back logically
+  if (currentScreen === 'add-cat' || currentScreen === 'edit-cat') {
+    navigate('settings', false); return;
+  }
+  if (currentScreen !== 'dashboard') {
+    navigate('dashboard', false); return;
+  }
+  // On dashboard → let it exit naturally (don't push state)
+});
 
 // ─── Budget edit ─────────────────────────────────────────────────
 function editBudget() {
