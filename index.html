@@ -1,3 +1,145 @@
+
+// ── History accordion ─────────────────────────────────────────────
+var histCharts = {};
+function toggleHistDrawer(mid) {
+  var card = document.getElementById('card-' + mid);
+  var drawer = document.getElementById('drawer-' + mid);
+  if (!card || !drawer) return;
+  var isOpen = drawer.classList.contains('open');
+  // Close all other drawers first
+  document.querySelectorAll('.hist-drawer.open').forEach(function(d) {
+    d.classList.remove('open');
+    var cid = d.id.replace('drawer-','');
+    var c = document.getElementById('card-' + cid);
+    if (c) c.classList.remove('open');
+  });
+  if (isOpen) return; // was open, now closed
+  card.classList.add('open');
+  drawer.classList.add('open');
+  // Render chart inside drawer
+  var month = mid.slice(0,4) + '-' + mid.slice(4);
+  var h = state.history.find(function(x) { return x.month === month; });
+  if (!h) return;
+  // Destroy old chart if exists
+  if (histCharts[mid]) { histCharts[mid].destroy(); delete histCharts[mid]; }
+  var breakdown = h.breakdown || [];
+  var labels=[],data=[],colors=[];
+  breakdown.forEach(function(c,i) {
+    if (c.spent > 0) { labels.push(c.icon+' '+c.name); data.push(c.spent); colors.push(c.color||catColor(i)); }
+  });
+  var remaining = Math.max(0, h.budget - h.spent);
+  if (remaining > 0) {
+    var pct = remaining / h.budget;
+    labels.push('Restante'); data.push(remaining);
+    colors.push(pct < 0.25 ? '#F43F5E' : pct < 0.5 ? '#F97316' : '#10B981');
+  }
+  document.getElementById('legend-' + mid).innerHTML = labels.map(function(l,i) {
+    return '<div class="legend-item"><div class="legend-dot" style="background:'+colors[i]+'"></div>'+l+'</div>';
+  }).join('');
+  document.getElementById('breakdown-' + mid).innerHTML = breakdown.filter(function(c){return c.spent>0;}).map(function(c) {
+    return '<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border);font-size:13px">'
+      + '<span>' + c.icon + ' ' + c.name + '</span>'
+      + '<strong style="font-variant-numeric:tabular-nums">' + fmt(c.spent) + '</strong></div>';
+  }).join('');
+  var ctx = document.getElementById('canvas-' + mid).getContext('2d');
+  if (data.length === 0) return;
+  histCharts[mid] = new Chart(ctx, {
+    type:'doughnut',
+    data:{labels:labels,datasets:[{data:data,backgroundColor:colors,borderWidth:0,hoverOffset:6}]},
+    options:{responsive:true,maintainAspectRatio:false,cutout:'60%',
+      plugins:{legend:{display:false},tooltip:{callbacks:{label:function(ctx){return ' '+ctx.label+': '+fmt(ctx.parsed);}},
+        backgroundColor:'#1E293B',titleColor:'#F8FAFC',bodyColor:'#94A3B8',padding:10,cornerRadius:10}}}
+  });
+}
+
+// ── History chart (accordion) ──────────────────────────────────
+let histPieChart = null;
+let openHistMonth = null;
+
+function toggleHistChart(month) {
+  if (openHistMonth === month) {
+    closeHistAccordion(month);
+    return;
+  }
+  if (openHistMonth) closeHistAccordion(openHistMonth);
+  openHistMonth = month;
+
+  const card = document.getElementById('hc-' + month);
+  const acc  = document.getElementById('ha-' + month);
+  const arrow = document.getElementById('hc-arrow-' + month);
+  if (!card || !acc) return;
+
+  card.classList.add('expanded');
+  acc.classList.add('open');
+  if (arrow) arrow.textContent = '˅';
+
+  // Draw chart after transition starts
+  setTimeout(function() { drawHistChart(month); }, 50);
+}
+
+function closeHistAccordion(month) {
+  const card  = document.getElementById('hc-' + month);
+  const acc   = document.getElementById('ha-' + month);
+  const arrow = document.getElementById('hc-arrow-' + month);
+  if (acc)  acc.classList.remove('open');
+  if (card) card.classList.remove('expanded');
+  if (arrow) arrow.textContent = '›';
+  if (histPieChart) { histPieChart.destroy(); histPieChart = null; }
+  openHistMonth = null;
+}
+
+function drawHistChart(month) {
+  const h = state.history.find(function(x) { return x.month === month; });
+  if (!h) return;
+
+  const breakdown = h.breakdown || [];
+  const labels=[], data=[], colors=[];
+  breakdown.forEach(function(c, i) {
+    if (c.spent > 0) {
+      labels.push(c.icon + ' ' + c.name);
+      data.push(c.spent);
+      colors.push(c.color || catColor(i));
+    }
+  });
+  const remaining = Math.max(0, h.budget - h.spent);
+  if (remaining > 0) {
+    const pct = remaining / h.budget;
+    labels.push('Restante');
+    data.push(remaining);
+    colors.push(pct < 0.25 ? '#F43F5E' : pct < 0.5 ? '#F97316' : '#10B981');
+  }
+
+  // Legend
+  const leg = document.getElementById('hleg-' + month);
+  if (leg) leg.innerHTML = labels.map(function(l,i) {
+    return '<div class="legend-item"><div class="legend-dot" style="background:' + colors[i] + '"></div>' + l + '</div>';
+  }).join('');
+
+  // Breakdown list
+  const bd = document.getElementById('hbd-' + month);
+  if (bd) bd.innerHTML = breakdown.filter(function(c){ return c.spent > 0; }).map(function(c) {
+    return '<div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border);font-size:13px">'
+      + '<span>' + c.icon + ' ' + c.name + '</span>'
+      + '<span style="font-weight:700;font-variant-numeric:tabular-nums">' + fmt(c.spent) + '</span></div>';
+  }).join('');
+
+  // Chart
+  const canvas = document.getElementById('hpc-' + month);
+  if (!canvas) return;
+  if (histPieChart) histPieChart.destroy();
+  if (data.length === 0) return;
+  histPieChart = new Chart(canvas.getContext('2d'), {
+    type:'doughnut',
+    data:{ labels:labels, datasets:[{ data:data, backgroundColor:colors, borderWidth:0, hoverOffset:6 }] },
+    options:{ responsive:true, maintainAspectRatio:false, cutout:'60%',
+      plugins:{ legend:{display:false},
+        tooltip:{ callbacks:{ label:function(ctx){ return ' ' + ctx.label + ': ' + fmt(ctx.parsed); } },
+          backgroundColor:'#1E293B', titleColor:'#F8FAFC', bodyColor:'#94A3B8', padding:10, cornerRadius:10 }
+      }
+    }
+  });
+}
+
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
@@ -510,14 +652,14 @@ body {
 /* ── Add entry modal ── */
 .add-modal-backdrop {
   position:fixed; inset:0; z-index:200;
-  background:rgba(7,11,20,.75);
-  backdrop-filter:blur(12px); -webkit-backdrop-filter:blur(12px);
+  background:rgba(0,0,0,0);
+  backdrop-filter:blur(18px) saturate(1.4); -webkit-backdrop-filter:blur(18px) saturate(1.4);
   display:flex; align-items:flex-end; justify-content:center;
   opacity:0; pointer-events:none; transition:opacity .25s;
 }
 .add-modal-backdrop.open { opacity:1; pointer-events:all; }
 .add-modal {
-  background:var(--bg2); border-radius:24px 24px 0 0;
+  background:rgba(17,24,39,0.95); border-radius:24px 24px 0 0;
   padding:20px 20px calc(20px + var(--safe-b));
   width:100%; max-width:430px;
   border-top:1px solid var(--border);
@@ -530,14 +672,14 @@ body {
 /* ── Filter modal ── */
 .filter-modal-backdrop {
   position:fixed; inset:0; z-index:200;
-  background:rgba(7,11,20,.75);
-  backdrop-filter:blur(12px); -webkit-backdrop-filter:blur(12px);
+  background:rgba(0,0,0,0);
+  backdrop-filter:blur(18px) saturate(1.4); -webkit-backdrop-filter:blur(18px) saturate(1.4);
   display:flex; align-items:flex-end; justify-content:center;
   opacity:0; pointer-events:none; transition:opacity .25s;
 }
 .filter-modal-backdrop.open { opacity:1; pointer-events:all; }
 .filter-modal {
-  background:var(--bg2); border-radius:24px 24px 0 0;
+  background:rgba(17,24,39,0.95); border-radius:24px 24px 0 0;
   padding:20px 20px calc(20px + var(--safe-b));
   width:100%; max-width:430px;
   border-top:1px solid var(--border);
@@ -560,6 +702,40 @@ body {
 .lanc-action-bar .btn-filter { background-color:#1E293B !important; color:#94A3B8; border:1px solid rgba(255,255,255,.15); opacity:1; }
 .lanc-action-bar .btn-filter.active { background:rgba(99,102,241,.15); color:var(--indigo-l); border-color:var(--indigo); }
 .lanc-action-bar .btn-add:active, .lanc-action-bar .btn-filter:active { transform:scale(.96); }
+
+/* ── History accordion chart ── */
+.hist-accordion {
+  overflow:hidden;
+  max-height:0;
+  transition:max-height .4s cubic-bezier(.4,0,.2,1), opacity .3s ease;
+  opacity:0;
+}
+.hist-accordion.open {
+  max-height:600px;
+  opacity:1;
+}
+.hist-accordion-inner {
+  background:var(--bg3); border-radius:0 0 14px 14px;
+  margin-top:-6px; padding:16px; border:1px solid var(--border); border-top:none;
+}
+.hist-card { border-radius:14px; transition:border-radius .2s; }
+.hist-card.expanded { border-radius:14px 14px 0 0; }
+
+/* ── History drawer (accordion) ── */
+.hist-entry { display:flex; flex-direction:column; }
+.hist-card { cursor:pointer; position:relative; }
+.hist-card .expand-icon { position:absolute; right:16px; top:50%; transform:translateY(-50%); color:var(--slate2); font-size:14px; transition:transform .3s; }
+.hist-card.open .expand-icon { transform:translateY(-50%) rotate(180deg); }
+.hist-drawer {
+  overflow:hidden; max-height:0;
+  transition:max-height .4s cubic-bezier(.4,0,.2,1), opacity .3s ease;
+  opacity:0; background:var(--bg2);
+  border:1px solid var(--border); border-top:none;
+  border-radius:0 0 var(--radius) var(--radius);
+  margin-top:-8px; padding-top:8px;
+}
+.hist-drawer.open { max-height:520px; opacity:1; }
+.hist-drawer-inner { padding:16px; display:flex; flex-direction:column; gap:12px; }
 </style>
 </head>
 <body>
@@ -708,7 +884,7 @@ body {
         </div>
       </div>
       <div style="display:flex;gap:10px">
-        <button onclick="clearFilters()" class="cancel-edit-btn" style="flex:1">✕ Limpar</button>
+        <button onclick="clearFiltersAndClose()" class="cancel-edit-btn" style="flex:1">✕ Limpar</button>
         <button onclick="applyAndCloseFilter()" class="submit-btn" style="flex:1">✓ Aplicar</button>
       </div>
     </div>
@@ -852,19 +1028,6 @@ body {
 </div>
 
 
-<!-- History chart modal -->
-<div class="modal-backdrop" id="hist-chart-modal" onclick="if(event.target===this)closeHistChart()">
-  <div class="modal" style="max-height:85vh;overflow-y:auto">
-    <div class="modal-handle"></div>
-    <div class="modal-title" id="hist-chart-title"></div>
-    <div style="margin-bottom:12px">
-      <div class="chart-container" style="height:200px"><canvas id="hist-pie-chart"></canvas></div>
-      <div class="chart-legend" id="hist-chart-legend" style="margin-top:12px"></div>
-    </div>
-    <div id="hist-chart-breakdown" style="display:flex;flex-direction:column;gap:8px;margin-bottom:16px"></div>
-    <button class="modal-btn-cancel" onclick="closeHistChart()" style="width:100%">Fechar</button>
-  </div>
-</div>
 
 <!-- Toast -->
 <div class="toast" id="toast"></div>
@@ -1218,12 +1381,13 @@ function renderFilterChips() {
   el.innerHTML = state.categories.map(function(c) {
     var active = filterCats.indexOf(c.name) >= 0;
     var cls = active ? 'chip active' : 'chip';
-    return '<button class="' + cls + '" onclick="toggleFilterCat(' + JSON.stringify(c.name) + ')">' + c.icon + ' ' + c.name + '</button>';
+    return '<button class="' + cls + '" data-cat="' + c.name + '" onclick="toggleFilterCat(this.dataset.cat)">' + c.icon + ' ' + c.name + '</button>';
   }).join('');
 }
 
-function toggleFilterCat(name) {
-  const idx = filterCats.indexOf(name);
+function toggleFilterCat(catIdx) {
+  var name = state.categories[catIdx].name;
+  var idx = filterCats.indexOf(name);
   if (idx >= 0) filterCats.splice(idx, 1); else filterCats.push(name);
   renderFilterChips();
 }
@@ -1236,12 +1400,18 @@ function applyAndCloseFilter() {
   closeFilterModal();
 }
 
+function clearFiltersAndClose() {
+  clearFilters();
+  closeFilterModal();
+}
+
 function clearFilters() {
   filterCats = []; filterDateFrom = ''; filterDateTo = '';
   var ff = document.getElementById('filter-date-from');
   var ft = document.getElementById('filter-date-to');
   if (ff) ff.value = ''; if (ft) ft.value = '';
   renderFilterChips(); renderEntryList(); updateFilterBtn();
+  closeFilterModal();
 }
 
 function updateFilterBtn() {
@@ -1374,40 +1544,39 @@ function deleteEntry(id) {
 //  HISTÓRICO
 // ═══════════════════════════════════════════════════════
 function renderHistorico() {
-  const el = document.getElementById('hist-list');
-  if (state.history.length === 0) {
-    el.innerHTML = `<div class="empty-state">
-      <div class="empty-icon">📅</div>
-      <div class="empty-text">Nenhum mês fechado ainda.<br>Usa o botão "Fechar Mês" no Dashboard.</div>
-    </div>`;
+  var el = document.getElementById('hist-list');
+  if (!state.history || state.history.length === 0) {
+    el.innerHTML = '<div class="empty-state"><div class="empty-icon">📅</div><div class="empty-text">Nenhum mês fechado ainda.<br>Usa o botão "Fechar Mês" no Dashboard.</div></div>';
     return;
   }
-
-  const sorted = [...state.history].sort((a,b) => b.month.localeCompare(a.month));
-  el.innerHTML = sorted.map(h => {
-    const isSaved = h.saved >= 0;
-    return `
-    <div class="hist-card" onclick="openHistChart('${h.month}')" style="cursor:pointer">
-      <div class="hist-month">${fmtMonth(h.month)}</div>
-      <div class="hist-row">
-        <span class="hist-label">Gasto</span>
-        <span class="hist-val">${fmt(h.spent)}</span>
-      </div>
-      <div class="hist-row">
-        <span class="hist-label">Orçamento</span>
-        <span class="hist-val">${fmt(h.budget)}</span>
-      </div>
-      <div class="hist-row">
-        <span class="hist-label">Economizado</span>
-        <span class="hist-val ${isSaved ? 'hist-saved' : 'hist-over'}">${fmt(h.saved)}</span>
-      </div>
-    </div>`;
+  var sorted = state.history.slice().sort(function(a,b){ return b.month.localeCompare(a.month); });
+  el.innerHTML = sorted.map(function(h) {
+    var isSaved = h.saved >= 0;
+    var card = document.createElement('div');
+    card.className = 'hist-card';
+    card.id = 'hc-' + h.month;
+    card.style.cursor = 'pointer';
+    card.dataset.month = h.month;
+    card.onclick = function(){ toggleHistChart(this.dataset.month); };
+    card.innerHTML = '<div class="hist-month">' + fmtMonth(h.month) + '<span style="float:right;font-size:14px;color:var(--slate)" id="hc-arrow-' + h.month + '">&#8250;</span></div>'
+      + '<div class="hist-row"><span class="hist-label">Gasto</span><span class="hist-val">' + fmt(h.spent) + '</span></div>'
+      + '<div class="hist-row"><span class="hist-label">Orçamento</span><span class="hist-val">' + fmt(h.budget) + '</span></div>'
+      + '<div class="hist-row"><span class="hist-label">Economizado</span><span class="hist-val ' + (isSaved?'hist-saved':'hist-over') + '">' + fmt(h.saved) + '</span></div>';
+    var acc = document.createElement('div');
+    acc.className = 'hist-accordion';
+    acc.id = 'ha-' + h.month;
+    acc.innerHTML = '<div class="hist-accordion-inner">'
+      + '<div class="chart-container" style="height:180px"><canvas id="hpc-' + h.month + '"></canvas></div>'
+      + '<div class="chart-legend" id="hleg-' + h.month + '" style="margin-top:10px"></div>'
+      + '<div id="hbd-' + h.month + '" style="margin-top:12px"></div>'
+      + '</div>';
+    var wrapper = document.createElement('div');
+    wrapper.appendChild(card);
+    wrapper.appendChild(acc);
+    return wrapper.outerHTML;
   }).join('');
 }
 
-// ═══════════════════════════════════════════════════════
-//  FECHAR MÊS
-// ═══════════════════════════════════════════════════════
 function openCloseModal() {
   const spent = totalSpent();
   const budget = totalBudget();
