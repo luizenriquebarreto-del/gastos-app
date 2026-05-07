@@ -1243,8 +1243,7 @@ function renderFilterChips() {
   }).join('');
 }
 
-function toggleFilterCat(catIdx) {
-  var name = state.categories[catIdx].name;
+function toggleFilterCat(name) {
   var idx = filterCats.indexOf(name);
   if (idx >= 0) filterCats.splice(idx, 1); else filterCats.push(name);
   renderFilterChips();
@@ -1269,7 +1268,6 @@ function clearFilters() {
   var ft = document.getElementById('filter-date-to');
   if (ff) ff.value = ''; if (ft) ft.value = '';
   renderFilterChips(); renderEntryList(); updateFilterBtn();
-  closeFilterModal();
 }
 
 function updateFilterBtn() {
@@ -1410,30 +1408,28 @@ function renderHistorico() {
   var sorted = state.history.slice().sort(function(a,b){ return b.month.localeCompare(a.month); });
   el.innerHTML = sorted.map(function(h) {
     var isSaved = h.saved >= 0;
-    var card = document.createElement('div');
-    card.className = 'hist-card';
-    card.id = 'hc-' + h.month;
-    card.style.cursor = 'pointer';
-    card.dataset.month = h.month;
-    card.onclick = function(){ toggleHistChart(this.dataset.month); };
-    card.innerHTML = '<div class="hist-month">' + fmtMonth(h.month) + '<span style="float:right;font-size:14px;color:var(--slate)" id="hc-arrow-' + h.month + '">&#8250;</span></div>'
-      + '<div class="hist-row"><span class="hist-label">Gasto</span><span class="hist-val">' + fmt(h.spent) + '</span></div>'
-      + '<div class="hist-row"><span class="hist-label">Orçamento</span><span class="hist-val">' + fmt(h.budget) + '</span></div>'
-      + '<div class="hist-row"><span class="hist-label">Economizado</span><span class="hist-val ' + (isSaved?'hist-saved':'hist-over') + '">' + fmt(h.saved) + '</span></div>';
-    var acc = document.createElement('div');
-    acc.className = 'hist-accordion';
-    acc.id = 'ha-' + h.month;
-    acc.innerHTML = '<div class="hist-accordion-inner">'
-      + '<div class="chart-container" style="height:180px"><canvas id="hpc-' + h.month + '"></canvas></div>'
-      + '<div class="chart-legend" id="hleg-' + h.month + '" style="margin-top:10px"></div>'
-      + '<div id="hbd-' + h.month + '" style="margin-top:12px"></div>'
+    var mid = 'hist-' + h.month.replace('-','');
+    return '<div class="hist-entry">'
+      + '<div class="hist-card" id="card-' + mid + '" onclick="toggleHistDrawer(' + JSON.stringify(mid) + ')">'
+        + '<div class="hist-month" style="display:flex;justify-content:space-between;align-items:center">'
+          + fmtMonth(h.month)
+          + '<span class="expand-icon" style="color:var(--slate2);font-size:14px;transition:transform .3s">▾</span>'
+        + '</div>'
+        + '<div class="hist-row"><span class="hist-label">Gasto</span><span class="hist-val">' + fmt(h.spent) + '</span></div>'
+        + '<div class="hist-row"><span class="hist-label">Orçamento</span><span class="hist-val">' + fmt(h.budget) + '</span></div>'
+        + '<div class="hist-row"><span class="hist-label">Economizado</span><span class="hist-val ' + (isSaved?'hist-saved':'hist-over') + '">' + fmt(h.saved) + '</span></div>'
+      + '</div>'
+      + '<div class="hist-drawer" id="drawer-' + mid + '">'
+        + '<div class="hist-drawer-inner">'
+          + '<div style="height:180px"><canvas id="canvas-' + mid + '"></canvas></div>'
+          + '<div id="legend-' + mid + '" class="chart-legend" style="margin-top:10px"></div>'
+          + '<div id="breakdown-' + mid + '" style="margin-top:12px"></div>'
+        + '</div>'
+      + '</div>'
       + '</div>';
-    var wrapper = document.createElement('div');
-    wrapper.appendChild(card);
-    wrapper.appendChild(acc);
-    return wrapper.outerHTML;
   }).join('');
 }
+
 
 function openCloseModal() {
   const spent = totalSpent();
