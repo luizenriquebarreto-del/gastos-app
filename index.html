@@ -717,7 +717,7 @@ body {
         <input type="text" placeholder="Opcional..." class="form-input" id="inp-notes">
       </div>
       <div style="display:flex;gap:10px;margin-top:4px">
-        <button class="cancel-edit-btn" id="cancel-edit-btn" onclick="cancelEdit()" style="display:none">✕ Cancelar</button>
+        <button class="cancel-edit-btn" id="cancel-edit-btn" onclick="closeAddModal()" style="display:none">✕ Cancelar</button>
         <button class="submit-btn" id="submit-btn" onclick="addEntry()" style="flex:1">+ Adicionar</button>
       </div>
     </div>
@@ -1205,6 +1205,7 @@ function openAddModal() {
 function closeAddModal(fromBack) {
   if (!fromBack) { skipNextPopstate = true; history.back(); }
   document.getElementById('add-modal').classList.remove('open');
+  cancelEdit();
 }
 function handleAddModalClick(e) { if (e.target===document.getElementById('add-modal')) closeAddModal(); }
 
