@@ -1386,7 +1386,7 @@ function renderHistorico() {
   el.innerHTML = sorted.map(h => {
     const isSaved = h.saved >= 0;
     return `
-    <div class="hist-card" onclick="openHistChart("${h.month}")" style="cursor:pointer">
+    <div class="hist-card" onclick="openHistChart('${h.month}')" style="cursor:pointer">
       <div class="hist-month">${fmtMonth(h.month)}</div>
       <div class="hist-row">
         <span class="hist-label">Gasto</span>
