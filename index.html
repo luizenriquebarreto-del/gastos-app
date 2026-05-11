@@ -651,39 +651,51 @@ body {
 
 
 /* ── Swipe tab animation (only gesture navigation) ── */
-body.swipe-lock { overflow:hidden; }
+body.swipe-lock {
+  overflow:hidden;
+  touch-action:none;
+}
 .screen.swipe-layer {
   display:flex !important;
   position:fixed;
-  top:0; left:50%;
-  width:100%; max-width:430px;
+  top:0;
+  left:50%;
+  width:100%;
+  max-width:430px;
   height:100dvh;
   overflow-y:auto;
   background:var(--bg);
   z-index:60;
   will-change:transform, opacity;
   box-shadow:0 0 28px rgba(0,0,0,.28);
+  backface-visibility:hidden;
+  transform:translate3d(-50%,0,0);
 }
 .screen.swipe-new { z-index:61; }
-.screen.swipe-out-left  { animation: swipeOutLeft  .28s cubic-bezier(.22,.61,.36,1) both; }
-.screen.swipe-out-right { animation: swipeOutRight .28s cubic-bezier(.22,.61,.36,1) both; }
-.screen.swipe-in-left   { animation: swipeInLeft   .28s cubic-bezier(.22,.61,.36,1) both; }
-.screen.swipe-in-right  { animation: swipeInRight  .28s cubic-bezier(.22,.61,.36,1) both; }
-@keyframes swipeOutLeft {
-  from { transform:translateX(-50%); opacity:1; }
-  to   { transform:translateX(calc(-50% - 38%)); opacity:.35; }
+.screen.swipe-dragging {
+  transition:none !important;
+  pointer-events:none;
 }
-@keyframes swipeOutRight {
-  from { transform:translateX(-50%); opacity:1; }
-  to   { transform:translateX(calc(-50% + 38%)); opacity:.35; }
+.screen.swipe-settling {
+  transition:transform .28s cubic-bezier(.22,.61,.36,1), opacity .28s cubic-bezier(.22,.61,.36,1);
+  pointer-events:none;
 }
-@keyframes swipeInLeft {
-  from { transform:translateX(calc(-50% - 100%)); opacity:.92; }
-  to   { transform:translateX(-50%); opacity:1; }
+.screen.swipe-shadow-left::after,
+.screen.swipe-shadow-right::after {
+  content:'';
+  position:absolute;
+  top:0; bottom:0;
+  width:26px;
+  pointer-events:none;
+  opacity:.35;
 }
-@keyframes swipeInRight {
-  from { transform:translateX(calc(-50% + 100%)); opacity:.92; }
-  to   { transform:translateX(-50%); opacity:1; }
+.screen.swipe-shadow-left::after {
+  left:0;
+  background:linear-gradient(90deg, rgba(0,0,0,.42), transparent);
+}
+.screen.swipe-shadow-right::after {
+  right:0;
+  background:linear-gradient(270deg, rgba(0,0,0,.42), transparent);
 }
 
 </style>
@@ -2232,6 +2244,14 @@ const MAIN_TABS = ['dashboard', 'lancamentos', 'historico'];
 let swipeStartX = 0;
 let swipeStartY = 0;
 let swipeStartTime = 0;
+let swipeDragging = false;
+let swipeCandidate = false;
+let swipeDirection = 0;
+let swipeOldEl = null;
+let swipeNewEl = null;
+let swipeNextScreen = '';
+let swipeWidth = 0;
+let swipeStartScrollY = 0;
 
 function isSwipeBlocked(target) {
   if (!target) return false;
@@ -2239,6 +2259,163 @@ function isSwipeBlocked(target) {
   if (!MAIN_TABS.includes(currentScreen)) return true;
   var openModal = document.querySelector('.modal-backdrop.open, .add-modal-backdrop.open, .filter-modal-backdrop.open');
   return !!openModal;
+}
+
+function resetSwipeVars() {
+  swipeStartX = 0;
+  swipeStartY = 0;
+  swipeStartTime = 0;
+  swipeDragging = false;
+  swipeCandidate = false;
+  swipeDirection = 0;
+  swipeOldEl = null;
+  swipeNewEl = null;
+  swipeNextScreen = '';
+  swipeWidth = 0;
+  swipeStartScrollY = 0;
+}
+
+function getSwipeScreenWidth() {
+  return Math.min(window.innerWidth || 430, 430);
+}
+
+function canMoveToDirection(direction) {
+  var idx = MAIN_TABS.indexOf(currentScreen);
+  if (idx < 0) return false;
+  var next = idx + direction;
+  return next >= 0 && next < MAIN_TABS.length;
+}
+
+function prepareSwipeDrag(direction) {
+  var idx = MAIN_TABS.indexOf(currentScreen);
+  var nextIdx = idx + direction;
+  if (idx < 0 || nextIdx < 0 || nextIdx >= MAIN_TABS.length) return false;
+
+  swipeDirection = direction;
+  swipeNextScreen = MAIN_TABS[nextIdx];
+  swipeOldEl = document.getElementById('screen-' + currentScreen);
+  swipeNewEl = document.getElementById('screen-' + swipeNextScreen);
+  swipeWidth = getSwipeScreenWidth();
+  if (!swipeOldEl || !swipeNewEl) return false;
+
+  // Renderiza a tela futura antes de ela aparecer, igual ao Instagram: ela já vem pronta acompanhando o dedo.
+  if (swipeNextScreen === 'dashboard') renderDashboard();
+  if (swipeNextScreen === 'lancamentos') renderLancamentos();
+  if (swipeNextScreen === 'historico') renderHistorico();
+
+  document.body.classList.add('swipe-lock');
+
+  document.querySelectorAll('.screen').forEach(function(s) {
+    if (s !== swipeOldEl && s !== swipeNewEl) {
+      s.classList.remove('active', 'swipe-layer', 'swipe-new', 'swipe-dragging', 'swipe-settling', 'swipe-shadow-left', 'swipe-shadow-right');
+      s.style.transform = '';
+      s.style.opacity = '';
+    }
+  });
+
+  swipeOldEl.classList.add('active', 'swipe-layer', 'swipe-dragging');
+  swipeNewEl.classList.add('active', 'swipe-layer', 'swipe-new', 'swipe-dragging');
+  swipeNewEl.classList.toggle('swipe-shadow-left', direction > 0);
+  swipeNewEl.classList.toggle('swipe-shadow-right', direction < 0);
+
+  setSwipeTransforms(0);
+  return true;
+}
+
+function setSwipeTransforms(dx) {
+  if (!swipeOldEl) return;
+  var w = swipeWidth || getSwipeScreenWidth();
+
+  // Se estiver no limite e não houver tela ao lado, dá só uma resistência elástica.
+  if (!swipeNewEl) {
+    var resisted = dx * 0.22;
+    swipeOldEl.style.transform = 'translate3d(calc(-50% + ' + resisted + 'px),0,0)';
+    swipeOldEl.style.opacity = '1';
+    return;
+  }
+
+  // direction > 0 = próxima aba à direita; dedo vai para esquerda (dx negativo).
+  // direction < 0 = próxima aba à esquerda; dedo vai para direita (dx positivo).
+  var progress = Math.min(1, Math.max(0, Math.abs(dx) / w));
+  var nextOffset = swipeDirection > 0 ? (w + dx) : (-w + dx);
+  var oldOpacity = 1 - progress * 0.18;
+  var newOpacity = 0.82 + progress * 0.18;
+
+  swipeOldEl.style.transform = 'translate3d(calc(-50% + ' + dx + 'px),0,0)';
+  swipeOldEl.style.opacity = oldOpacity.toFixed(3);
+  swipeNewEl.style.transform = 'translate3d(calc(-50% + ' + nextOffset + 'px),0,0)';
+  swipeNewEl.style.opacity = newOpacity.toFixed(3);
+}
+
+function finishSwipeDrag(commit, dx) {
+  if (!swipeOldEl) { resetSwipeVars(); return; }
+
+  var oldEl = swipeOldEl;
+  var newEl = swipeNewEl;
+  var nextScreen = swipeNextScreen;
+  var direction = swipeDirection;
+  var w = swipeWidth || getSwipeScreenWidth();
+
+  oldEl.classList.remove('swipe-dragging');
+  oldEl.classList.add('swipe-settling');
+
+  if (newEl) {
+    newEl.classList.remove('swipe-dragging');
+    newEl.classList.add('swipe-settling');
+  }
+
+  if (commit && newEl) {
+    // Completa a passagem: a tela antiga termina fora, a nova ocupa o centro.
+    var oldEnd = direction > 0 ? -w : w;
+    oldEl.style.transform = 'translate3d(calc(-50% + ' + oldEnd + 'px),0,0)';
+    oldEl.style.opacity = '.72';
+    newEl.style.transform = 'translate3d(-50%,0,0)';
+    newEl.style.opacity = '1';
+
+    if (nextScreen !== 'dashboard') { exitWarning = false; clearTimeout(exitWarningTimer); history.pushState({ screen: nextScreen }, ''); }
+    isExiting = false;
+
+    currentScreen = nextScreen;
+    document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+    const navBtn = document.getElementById('nav-' + nextScreen);
+    if (navBtn) navBtn.classList.add('active');
+    const bar = document.getElementById('lanc-action-bar');
+    if (bar) bar.style.display = (nextScreen === 'lancamentos') ? 'flex' : 'none';
+
+    window.setTimeout(function() {
+      oldEl.classList.remove('active', 'swipe-layer', 'swipe-new', 'swipe-settling', 'swipe-shadow-left', 'swipe-shadow-right');
+      oldEl.style.transform = '';
+      oldEl.style.opacity = '';
+      newEl.classList.remove('swipe-layer', 'swipe-new', 'swipe-settling', 'swipe-shadow-left', 'swipe-shadow-right');
+      newEl.style.transform = '';
+      newEl.style.opacity = '';
+      document.body.classList.remove('swipe-lock');
+      window.scrollTo(0, 0);
+      resetSwipeVars();
+    }, 290);
+  } else {
+    // Não passou o limite: volta exatamente para onde estava.
+    oldEl.style.transform = 'translate3d(-50%,0,0)';
+    oldEl.style.opacity = '1';
+    if (newEl) {
+      var startOffset = direction > 0 ? w : -w;
+      newEl.style.transform = 'translate3d(calc(-50% + ' + startOffset + 'px),0,0)';
+      newEl.style.opacity = '.82';
+    }
+
+    window.setTimeout(function() {
+      oldEl.classList.remove('swipe-layer', 'swipe-new', 'swipe-settling', 'swipe-shadow-left', 'swipe-shadow-right');
+      oldEl.style.transform = '';
+      oldEl.style.opacity = '';
+      if (newEl) {
+        newEl.classList.remove('active', 'swipe-layer', 'swipe-new', 'swipe-settling', 'swipe-shadow-left', 'swipe-shadow-right');
+        newEl.style.transform = '';
+        newEl.style.opacity = '';
+      }
+      document.body.classList.remove('swipe-lock');
+      resetSwipeVars();
+    }, 290);
+  }
 }
 
 function moveMainTab(direction, animate) {
@@ -2252,55 +2429,9 @@ function moveMainTab(direction, animate) {
     return;
   }
 
-  navigateWithSwipeAnimation(MAIN_TABS[next], direction);
-}
-
-function navigateWithSwipeAnimation(nextScreen, direction) {
-  var oldScreen = currentScreen;
-  var oldEl = document.getElementById('screen-' + oldScreen);
-  var newEl = document.getElementById('screen-' + nextScreen);
-  if (!oldEl || !newEl || oldScreen === nextScreen) return;
-
-  if (nextScreen !== 'dashboard') { exitWarning = false; clearTimeout(exitWarningTimer); }
-  isExiting = false;
-
-  // Mantém o mesmo comportamento de histórico da navegação normal, mas só para o gesto.
-  if (nextScreen !== 'dashboard') history.pushState({ screen: nextScreen }, '');
-
-  document.body.classList.add('swipe-lock');
-  document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
-  const navBtn = document.getElementById('nav-' + nextScreen);
-  if (navBtn) navBtn.classList.add('active');
-
-  // Renderiza a tela nova antes da animação para ela entrar já atualizada.
-  currentScreen = nextScreen;
-  if (nextScreen === 'dashboard') renderDashboard();
-  if (nextScreen === 'lancamentos') renderLancamentos();
-  if (nextScreen === 'historico') renderHistorico();
-
-  const bar = document.getElementById('lanc-action-bar');
-  if (bar) bar.style.display = (nextScreen === 'lancamentos') ? 'flex' : 'none';
-
-  document.querySelectorAll('.screen').forEach(function(s) {
-    if (s !== oldEl && s !== newEl) {
-      s.classList.remove('active', 'swipe-layer', 'swipe-new', 'swipe-out-left', 'swipe-out-right', 'swipe-in-left', 'swipe-in-right');
-    }
-  });
-
-  oldEl.classList.add('active', 'swipe-layer');
-  newEl.classList.add('active', 'swipe-layer', 'swipe-new');
-
-  // direction > 0 = vai para aba da direita: tela antiga sai à esquerda e nova entra da direita.
-  // direction < 0 = vai para aba da esquerda: tela antiga sai à direita e nova entra da esquerda.
-  oldEl.classList.add(direction > 0 ? 'swipe-out-left' : 'swipe-out-right');
-  newEl.classList.add(direction > 0 ? 'swipe-in-right' : 'swipe-in-left');
-
-  window.setTimeout(function() {
-    oldEl.classList.remove('active', 'swipe-layer', 'swipe-new', 'swipe-out-left', 'swipe-out-right', 'swipe-in-left', 'swipe-in-right');
-    newEl.classList.remove('swipe-layer', 'swipe-new', 'swipe-out-left', 'swipe-out-right', 'swipe-in-left', 'swipe-in-right');
-    document.body.classList.remove('swipe-lock');
-    window.scrollTo(0, 0);
-  }, 300);
+  // Fallback caso algum navegador antigo não acompanhe touchmove direito.
+  prepareSwipeDrag(direction);
+  finishSwipeDrag(true, direction > 0 ? -swipeWidth : swipeWidth);
 }
 
 document.addEventListener('touchstart', function(e) {
@@ -2308,23 +2439,81 @@ document.addEventListener('touchstart', function(e) {
   swipeStartX = e.touches[0].clientX;
   swipeStartY = e.touches[0].clientY;
   swipeStartTime = Date.now();
+  swipeStartScrollY = window.scrollY || 0;
+  swipeCandidate = true;
 }, { passive:true });
 
+document.addEventListener('touchmove', function(e) {
+  if (!swipeCandidate || !swipeStartTime || !e.touches || e.touches.length !== 1) return;
+
+  var x = e.touches[0].clientX;
+  var y = e.touches[0].clientY;
+  var dx = x - swipeStartX;
+  var dy = y - swipeStartY;
+  var absX = Math.abs(dx);
+  var absY = Math.abs(dy);
+
+  // Se claramente for scroll vertical, não entra no modo swipe.
+  if (!swipeDragging && absY > 12 && absY > absX * 1.1) {
+    resetSwipeVars();
+    return;
+  }
+
+  if (!swipeDragging) {
+    if (absX < 10 || absX < absY * 1.2) return;
+
+    // dx > 0 = dedo à direita = ir para aba da esquerda. dx < 0 = ir para aba da direita.
+    var direction = dx > 0 ? -1 : 1;
+
+    swipeOldEl = document.getElementById('screen-' + currentScreen);
+
+    if (canMoveToDirection(direction)) {
+      swipeDragging = prepareSwipeDrag(direction);
+    } else {
+      // No extremo, acompanha um pouquinho com resistência e volta no fim.
+      swipeDragging = true;
+      swipeDirection = 0;
+      swipeWidth = getSwipeScreenWidth();
+      document.body.classList.add('swipe-lock');
+      if (swipeOldEl) {
+        swipeOldEl.classList.add('active', 'swipe-layer', 'swipe-dragging');
+        swipeNewEl = null;
+      }
+    }
+  }
+
+  if (swipeDragging) {
+    e.preventDefault();
+    setSwipeTransforms(dx);
+  }
+}, { passive:false });
+
 document.addEventListener('touchend', function(e) {
-  if (!swipeStartTime || isSwipeBlocked(e.target) || !e.changedTouches || e.changedTouches.length !== 1) return;
-  var dx = e.changedTouches[0].clientX - swipeStartX;
-  var dy = e.changedTouches[0].clientY - swipeStartY;
-  var dt = Date.now() - swipeStartTime;
-  swipeStartTime = 0;
+  if (!swipeStartTime) return;
 
-  if (dt > 700) return;
-  if (Math.abs(dx) < 65) return;
-  if (Math.abs(dx) < Math.abs(dy) * 1.35) return;
+  var dx = 0;
+  var dy = 0;
+  if (e.changedTouches && e.changedTouches.length === 1) {
+    dx = e.changedTouches[0].clientX - swipeStartX;
+    dy = e.changedTouches[0].clientY - swipeStartY;
+  }
+  var dt = Math.max(1, Date.now() - swipeStartTime);
+  var velocity = Math.abs(dx) / dt;
+  var w = swipeWidth || getSwipeScreenWidth();
+  var enoughDistance = Math.abs(dx) > w * 0.28;
+  var enoughVelocity = Math.abs(dx) > 45 && velocity > 0.55;
 
-  // Lógica corrigida do gesto:
-  // dedo arrasta para a direita -> conteúdo acompanha para a direita -> vai para a aba à esquerda;
-  // dedo arrasta para a esquerda -> conteúdo acompanha para a esquerda -> vai para a aba à direita.
-  moveMainTab(dx > 0 ? -1 : 1, true);
+  if (swipeDragging) {
+    var commit = !!(swipeNewEl && Math.abs(dx) > Math.abs(dy) && (enoughDistance || enoughVelocity));
+    finishSwipeDrag(commit, dx);
+  } else {
+    resetSwipeVars();
+  }
+}, { passive:true });
+
+document.addEventListener('touchcancel', function() {
+  if (swipeDragging) finishSwipeDrag(false, 0);
+  else resetSwipeVars();
 }, { passive:true });
 
 // ═══════════════════════════════════════════════════════
