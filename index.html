@@ -648,6 +648,20 @@ body {
   padding-top:10px;
 }
 
+
+
+/* ── Swipe tab animation (only gesture navigation) ── */
+.screen.swipe-in-from-right { animation: swipeInFromRight .24s cubic-bezier(.22,.61,.36,1) both; }
+.screen.swipe-in-from-left  { animation: swipeInFromLeft  .24s cubic-bezier(.22,.61,.36,1) both; }
+@keyframes swipeInFromRight {
+  from { opacity:.72; transform:translateX(26px); }
+  to   { opacity:1;   transform:translateX(0); }
+}
+@keyframes swipeInFromLeft {
+  from { opacity:.72; transform:translateX(-26px); }
+  to   { opacity:1;   transform:translateX(0); }
+}
+
 </style>
 </head>
 <body>
@@ -2203,12 +2217,28 @@ function isSwipeBlocked(target) {
   return !!openModal;
 }
 
-function moveMainTab(direction) {
+function moveMainTab(direction, animate) {
   var idx = MAIN_TABS.indexOf(currentScreen);
   if (idx < 0) return;
   var next = idx + direction;
   if (next < 0 || next >= MAIN_TABS.length) return;
+
   navigate(MAIN_TABS[next]);
+
+  // Anima só quando a mudança veio do gesto de arrastar.
+  // Clique na bottom nav continua instantâneo, porque chama navigate() direto.
+  if (animate) {
+    var active = document.getElementById('screen-' + MAIN_TABS[next]);
+    if (!active) return;
+    var cls = direction > 0 ? 'swipe-in-from-right' : 'swipe-in-from-left';
+    active.classList.remove('swipe-in-from-right', 'swipe-in-from-left');
+    // força o navegador a reiniciar a animação mesmo em swipes seguidos
+    void active.offsetWidth;
+    active.classList.add(cls);
+    setTimeout(function() {
+      active.classList.remove('swipe-in-from-right', 'swipe-in-from-left');
+    }, 280);
+  }
 }
 
 document.addEventListener('touchstart', function(e) {
@@ -2232,7 +2262,7 @@ document.addEventListener('touchend', function(e) {
   // Lógica corrigida do gesto:
   // dedo arrasta para a direita -> conteúdo acompanha para a direita -> vai para a aba à esquerda;
   // dedo arrasta para a esquerda -> conteúdo acompanha para a esquerda -> vai para a aba à direita.
-  moveMainTab(dx > 0 ? -1 : 1);
+  moveMainTab(dx > 0 ? -1 : 1, true);
 }, { passive:true });
 
 // ═══════════════════════════════════════════════════════
