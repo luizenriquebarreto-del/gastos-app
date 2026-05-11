@@ -2255,8 +2255,14 @@ let swipeStartScrollY = 0;
 
 function isSwipeBlocked(target) {
   if (!target) return false;
-  if (target.closest && target.closest('input, textarea, select, button, canvas, .modal, .add-modal, .filter-modal, .bottom-nav, .lanc-action-bar, #lock-screen')) return true;
   if (!MAIN_TABS.includes(currentScreen)) return true;
+
+  // Bloqueia só áreas onde swipe realmente atrapalharia digitação/modal/nav.
+  // Importante: NÃO bloqueia mais qualquer <button> nem a .lanc-action-bar.
+  // Assim, na aba Lançamentos, o gesto também funciona quando o dedo começa
+  // perto dos cards/botões/barra inferior; se for só toque curto, o clique normal continua.
+  if (target.closest && target.closest('input, textarea, select, canvas, .modal, .add-modal, .filter-modal, .bottom-nav, #lock-screen')) return true;
+
   var openModal = document.querySelector('.modal-backdrop.open, .add-modal-backdrop.open, .filter-modal-backdrop.open');
   return !!openModal;
 }
