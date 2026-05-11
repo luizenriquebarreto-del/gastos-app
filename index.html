@@ -2116,6 +2116,109 @@ function pctText(value) {
   return Math.round(value) + '%';
 }
 
+// Normaliza observações para conseguir ler "almoço" e "almoco" como a mesma coisa.
+function normNote(str) {
+  return String(str || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9+\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function noteHasAny(note, words) {
+  var n = ' ' + normNote(note) + ' ';
+  return words.some(function(w) {
+    var ww = normNote(w);
+    if (!ww) return false;
+    // Para palavras muito curtas como "u", exige palavra isolada.
+    if (ww.length <= 2) return n.indexOf(' ' + ww + ' ') >= 0;
+    return n.indexOf(ww) >= 0;
+  });
+}
+
+// "Base de dados" local das observações. Não é IA: é leitura por palavras-chave.
+const NOTE_GROUPS = [
+  {
+    id:'alimentacao', label:'comida/mercado', icon:'🍽️',
+    words:[
+      'mercado','supermercado','compra de mercado','compras mercado','u','carrefour','lidl','auchan','leclerc','monoprix','intermarche','casino','spar','epicerie','épicerie',
+      'comida','alimentacao','alimentação','almoco','almoço','jantar','janta','lanche','brunch','cafe','café','padaria','boulangerie','snack',
+      'restaurante','resto','kebab','mcdonalds','mc donalds','mcdo','burger','hamburger','pizza','sushi','taco','tacos','salada','sandwich','sanduiche','crepe','sorvete','glace',
+      'bebida','agua','água','refri','refrigerante','suco','sumo','cerveja','vinho','alcool','álcool',
+      'pao','pão','leite','ovo','ovos','queijo','frango','carne','massa','arroz','chocolate','cereal','iogurte','fruta','banana','maça','maca'
+    ]
+  },
+  {
+    id:'lazer', label:'lazer/saídas', icon:'🎭',
+    words:[
+      'bar','festa','balada','cinema','filme','shopping','saida','saída','rolê','role','show','teatro','museu','jogo','partida','evento','date',
+      'bebida','alcool','álcool','cerveja','vinho','drink','pub','boate','clube','restaurante','brunch'
+    ]
+  },
+  {
+    id:'transporte', label:'transporte', icon:'🚕',
+    words:['uber','trem','train','naolib','naolib velo','naolib vélo']
+  },
+  {
+    id:'moradia', label:'contas da casa', icon:'🏠',
+    words:['wifi','internet','energia','luz','eletricidade','electricidade','edf','conta de luz','conta energia']
+  },
+  {
+    id:'assinaturas', label:'assinatura/app', icon:'💬',
+    words:['chat','gpt','chatgpt','openai','assinatura','subscription']
+  },
+  {
+    id:'viagem', label:'viagem', icon:'✈️',
+    words:['viagem','hotel','hostel','airbnb','passagem','voo','vôo','flight','aviao','avião','aeroporto','bagagem','mala','taxa bagagem','reserva','booking']
+  },
+  {
+    id:'roupa_compras', label:'roupa/compras', icon:'🛍️',
+    words:['roupa','loja de roupa','camisa','camiseta','calca','calça','bermuda','short','tenis','tênis','sapato','casaco','jaqueta','moletom','zara','hm','h&m','uniqlo','primark','decathlon','shopping']
+  },
+  {
+    id:'pix', label:'pix/transferência', icon:'↔️',
+    words:['pix','transferencia','transferência']
+  }
+];
+
+function getNoteHitsFromNotes(notes) {
+  var hits = [];
+  NOTE_GROUPS.forEach(function(group) {
+    var count = notes.filter(function(note) { return noteHasAny(note, group.words); }).length;
+    if (count) hits.push({ id:group.id, label:group.label, icon:group.icon, count:count });
+  });
+  hits.sort(function(a,b) { return b.count - a.count; });
+  return hits;
+}
+
+function getHistoryNotes(h) {
+  return (h.breakdown || []).flatMap(function(c) { return (c.notes || []); }).filter(Boolean);
+}
+
+function getRecurringInsight(h) {
+  var currentHits = getNoteHitsFromNotes(getHistoryNotes(h));
+  if (!currentHits.length) return '';
+
+  var previous = (state.history || []).filter(function(x) { return x.month && x.month < h.month; });
+  var recurring = [];
+
+  currentHits.forEach(function(hit) {
+    var monthsSeen = previous.filter(function(prev) {
+      return getNoteHitsFromNotes(getHistoryNotes(prev)).some(function(prevHit) { return prevHit.id === hit.id; });
+    }).length;
+    if (monthsSeen > 0 || hit.id === 'assinaturas' || hit.id === 'moradia' || hit.id === 'pix') {
+      recurring.push(Object.assign({}, hit, { monthsSeen: monthsSeen }));
+    }
+  });
+
+  if (!recurring.length) return '';
+  recurring.sort(function(a,b) { return (b.monthsSeen - a.monthsSeen) || (b.count - a.count); });
+  var top = recurring.slice(0, 2).map(function(x) { return x.icon + ' ' + x.label; }).join(' + ');
+  return top;
+}
+
 function getHistoryAnalysis(h) {
   var breakdown = (h.breakdown || []).filter(function(c) { return (c.spent || 0) > 0 || (c.budget || 0) > 0; });
   var withBudget = breakdown.filter(function(c) { return (c.budget || 0) > 0; }).map(function(c) {
@@ -2137,22 +2240,9 @@ function getHistoryAnalysis(h) {
   var saving = withBudget.filter(function(c) { return c.remaining > 0; }).sort(function(a,b) { return b.remaining - a.remaining; })[0];
   var biggest = breakdown.slice().sort(function(a,b) { return (b.spent || 0) - (a.spent || 0); })[0];
 
-  var allNotes = breakdown.flatMap(function(c) {
-    return (c.notes || []).map(function(n) { return { cat:c, note:String(n).toLowerCase() }; });
-  });
-  var noteHits = [];
-  var rules = [
-    { label:'comida/mercado', re:/(mercado|u\b|carrefour|lidl|auchan|leclerc|monoprix|restaurante|ifood|uber eats|delivery|pizza|burger|café|cafe|bar|alcool|álcool)/i },
-    { label:'moradia/contas', re:/(aluguel|renda|energia|luz|wifi|internet|eau|água|agua|edf|assurance)/i },
-    { label:'transporte/viagem', re:/(uber|bolt|tan|bus|metro|métro|train|sncf|viagem|hotel|airbnb|voo|flight|aeroporto)/i },
-    { label:'transferências/reembolsos', re:/(pix|reembolso|re\b|vovo|soph|erick|transfer)/i },
-    { label:'assinaturas/apps', re:/(chat|spotify|netflix|prime|icloud|assinatura|subscription|app)/i }
-  ];
-  rules.forEach(function(rule) {
-    var count = allNotes.filter(function(x) { return rule.re.test(x.note); }).length;
-    if (count) noteHits.push({ label:rule.label, count:count });
-  });
-  noteHits.sort(function(a,b) { return b.count - a.count; });
+  var notes = getHistoryNotes(h);
+  var noteHits = getNoteHitsFromNotes(notes);
+  var recurring = getRecurringInsight(h);
 
   var suggestion;
   if (over.length) {
@@ -2166,8 +2256,8 @@ function getHistoryAnalysis(h) {
   }
 
   var notesLine = noteHits.length
-    ? 'Pelas observações, apareceram mais menções ligadas a <strong style="color:var(--white)">' + escHtml(noteHits[0].label) + '</strong>' + (noteHits[1] ? ' e ' + escHtml(noteHits[1].label) : '') + '. Isso é uma leitura por palavras-chave, não IA real.'
-    : 'Poucas observações úteis neste mês. Quanto mais detalhadas forem as notas, melhor fica esta análise local.';
+    ? 'Pelas observações, apareceram mais menções ligadas a <strong style="color:var(--white)">' + escHtml(noteHits[0].icon + ' ' + noteHits[0].label) + '</strong>' + (noteHits[1] ? ' e <strong style="color:var(--white)">' + escHtml(noteHits[1].icon + ' ' + noteHits[1].label) + '</strong>' : '') + '. Leitura por palavras-chave, sem IA.'
+    : 'Poucas observações úteis neste mês. Palavras como mercado, almoço/almoco, restaurante, bar, cinema, wifi, energia, uber, trem, naolib, chat/gpt e pix melhoram a leitura local.';
 
   var html = '<div class="hist-analysis-title">🧠 Análise compacta</div>';
   html += '<div class="hist-insight-row"><div class="hist-insight-label">Maior pressão no teto</div><div class="hist-insight-value" style="color:' + (pressure.ratio > 100 ? 'var(--rose-l)' : 'var(--amber)') + '">' + escHtml((pressure.icon || '') + ' ' + pressure.name) + '<br>' + pctText(pressure.ratio) + '</div></div>';
@@ -2175,6 +2265,9 @@ function getHistoryAnalysis(h) {
     html += '<div class="hist-insight-row"><div class="hist-insight-label">Onde mais economizaste</div><div class="hist-insight-value" style="color:var(--emerald-l)">' + escHtml((saving.icon || '') + ' ' + saving.name) + '<br>' + fmt(saving.remaining) + '</div></div>';
   }
   html += '<div class="hist-insight-row"><div class="hist-insight-label">Onde melhorar</div><div class="hist-insight-value">' + escHtml(suggestion) + '</div></div>';
+  if (recurring) {
+    html += '<div class="hist-insight-row"><div class="hist-insight-label">Possível recorrente</div><div class="hist-insight-value" style="color:var(--indigo-l)">' + escHtml(recurring) + '</div></div>';
+  }
   html += '<div class="hist-insight-note">' + notesLine + '</div>';
   return { html: html };
 }
