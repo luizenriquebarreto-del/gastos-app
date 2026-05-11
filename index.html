@@ -2229,9 +2229,10 @@ document.addEventListener('touchend', function(e) {
   if (Math.abs(dx) < 65) return;
   if (Math.abs(dx) < Math.abs(dy) * 1.35) return;
 
-  // Regra pedida: arrastar para a direita abre a aba da direita;
-  // arrastar para a esquerda abre a aba da esquerda.
-  moveMainTab(dx > 0 ? 1 : -1);
+  // Lógica corrigida do gesto:
+  // dedo arrasta para a direita -> conteúdo acompanha para a direita -> vai para a aba à esquerda;
+  // dedo arrasta para a esquerda -> conteúdo acompanha para a esquerda -> vai para a aba à direita.
+  moveMainTab(dx > 0 ? -1 : 1);
 }, { passive:true });
 
 // ═══════════════════════════════════════════════════════
