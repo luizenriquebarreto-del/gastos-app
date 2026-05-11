@@ -651,15 +651,39 @@ body {
 
 
 /* ── Swipe tab animation (only gesture navigation) ── */
-.screen.swipe-in-from-right { animation: swipeInFromRight .24s cubic-bezier(.22,.61,.36,1) both; }
-.screen.swipe-in-from-left  { animation: swipeInFromLeft  .24s cubic-bezier(.22,.61,.36,1) both; }
-@keyframes swipeInFromRight {
-  from { opacity:.72; transform:translateX(26px); }
-  to   { opacity:1;   transform:translateX(0); }
+body.swipe-lock { overflow:hidden; }
+.screen.swipe-layer {
+  display:flex !important;
+  position:fixed;
+  top:0; left:50%;
+  width:100%; max-width:430px;
+  height:100dvh;
+  overflow-y:auto;
+  background:var(--bg);
+  z-index:60;
+  will-change:transform, opacity;
+  box-shadow:0 0 28px rgba(0,0,0,.28);
 }
-@keyframes swipeInFromLeft {
-  from { opacity:.72; transform:translateX(-26px); }
-  to   { opacity:1;   transform:translateX(0); }
+.screen.swipe-new { z-index:61; }
+.screen.swipe-out-left  { animation: swipeOutLeft  .28s cubic-bezier(.22,.61,.36,1) both; }
+.screen.swipe-out-right { animation: swipeOutRight .28s cubic-bezier(.22,.61,.36,1) both; }
+.screen.swipe-in-left   { animation: swipeInLeft   .28s cubic-bezier(.22,.61,.36,1) both; }
+.screen.swipe-in-right  { animation: swipeInRight  .28s cubic-bezier(.22,.61,.36,1) both; }
+@keyframes swipeOutLeft {
+  from { transform:translateX(-50%); opacity:1; }
+  to   { transform:translateX(calc(-50% - 38%)); opacity:.35; }
+}
+@keyframes swipeOutRight {
+  from { transform:translateX(-50%); opacity:1; }
+  to   { transform:translateX(calc(-50% + 38%)); opacity:.35; }
+}
+@keyframes swipeInLeft {
+  from { transform:translateX(calc(-50% - 100%)); opacity:.92; }
+  to   { transform:translateX(-50%); opacity:1; }
+}
+@keyframes swipeInRight {
+  from { transform:translateX(calc(-50% + 100%)); opacity:.92; }
+  to   { transform:translateX(-50%); opacity:1; }
 }
 
 </style>
@@ -2223,22 +2247,60 @@ function moveMainTab(direction, animate) {
   var next = idx + direction;
   if (next < 0 || next >= MAIN_TABS.length) return;
 
-  navigate(MAIN_TABS[next]);
-
-  // Anima só quando a mudança veio do gesto de arrastar.
-  // Clique na bottom nav continua instantâneo, porque chama navigate() direto.
-  if (animate) {
-    var active = document.getElementById('screen-' + MAIN_TABS[next]);
-    if (!active) return;
-    var cls = direction > 0 ? 'swipe-in-from-right' : 'swipe-in-from-left';
-    active.classList.remove('swipe-in-from-right', 'swipe-in-from-left');
-    // força o navegador a reiniciar a animação mesmo em swipes seguidos
-    void active.offsetWidth;
-    active.classList.add(cls);
-    setTimeout(function() {
-      active.classList.remove('swipe-in-from-right', 'swipe-in-from-left');
-    }, 280);
+  if (!animate) {
+    navigate(MAIN_TABS[next]);
+    return;
   }
+
+  navigateWithSwipeAnimation(MAIN_TABS[next], direction);
+}
+
+function navigateWithSwipeAnimation(nextScreen, direction) {
+  var oldScreen = currentScreen;
+  var oldEl = document.getElementById('screen-' + oldScreen);
+  var newEl = document.getElementById('screen-' + nextScreen);
+  if (!oldEl || !newEl || oldScreen === nextScreen) return;
+
+  if (nextScreen !== 'dashboard') { exitWarning = false; clearTimeout(exitWarningTimer); }
+  isExiting = false;
+
+  // Mantém o mesmo comportamento de histórico da navegação normal, mas só para o gesto.
+  if (nextScreen !== 'dashboard') history.pushState({ screen: nextScreen }, '');
+
+  document.body.classList.add('swipe-lock');
+  document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+  const navBtn = document.getElementById('nav-' + nextScreen);
+  if (navBtn) navBtn.classList.add('active');
+
+  // Renderiza a tela nova antes da animação para ela entrar já atualizada.
+  currentScreen = nextScreen;
+  if (nextScreen === 'dashboard') renderDashboard();
+  if (nextScreen === 'lancamentos') renderLancamentos();
+  if (nextScreen === 'historico') renderHistorico();
+
+  const bar = document.getElementById('lanc-action-bar');
+  if (bar) bar.style.display = (nextScreen === 'lancamentos') ? 'flex' : 'none';
+
+  document.querySelectorAll('.screen').forEach(function(s) {
+    if (s !== oldEl && s !== newEl) {
+      s.classList.remove('active', 'swipe-layer', 'swipe-new', 'swipe-out-left', 'swipe-out-right', 'swipe-in-left', 'swipe-in-right');
+    }
+  });
+
+  oldEl.classList.add('active', 'swipe-layer');
+  newEl.classList.add('active', 'swipe-layer', 'swipe-new');
+
+  // direction > 0 = vai para aba da direita: tela antiga sai à esquerda e nova entra da direita.
+  // direction < 0 = vai para aba da esquerda: tela antiga sai à direita e nova entra da esquerda.
+  oldEl.classList.add(direction > 0 ? 'swipe-out-left' : 'swipe-out-right');
+  newEl.classList.add(direction > 0 ? 'swipe-in-right' : 'swipe-in-left');
+
+  window.setTimeout(function() {
+    oldEl.classList.remove('active', 'swipe-layer', 'swipe-new', 'swipe-out-left', 'swipe-out-right', 'swipe-in-left', 'swipe-in-right');
+    newEl.classList.remove('swipe-layer', 'swipe-new', 'swipe-out-left', 'swipe-out-right', 'swipe-in-left', 'swipe-in-right');
+    document.body.classList.remove('swipe-lock');
+    window.scrollTo(0, 0);
+  }, 300);
 }
 
 document.addEventListener('touchstart', function(e) {
