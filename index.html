@@ -1757,13 +1757,12 @@ function addCategory() {
 function openEditCat(idx) {
   editingCatIdx = idx;
   const cat = state.categories[idx];
-  const isDefault = ['Mercado','Roupa','Viagem','Lazer','Compras','Aluguel','Outros'].includes(cat.name);
   document.getElementById('edit-cat-title').textContent = cat.name;
   document.getElementById('edit-cat-icon').value = cat.icon;
   document.getElementById('edit-emoji-preview').textContent = cat.icon;
   document.getElementById('edit-cat-name').value = cat.name;
   document.getElementById('edit-cat-budget').value = cat.budget;
-  document.getElementById('edit-delete-btn').style.display = isDefault ? 'none' : 'block';
+  document.getElementById('edit-delete-btn').style.display = 'block';
   selectedColor = cat.color || catColor(idx);
   navigate('edit-cat');
   renderColorGrid('edit-color-grid', selectedColor);
