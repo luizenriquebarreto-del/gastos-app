@@ -1802,12 +1802,19 @@ function clearExitWarning() {
   clearTimeout(exitWarningTimer);
 }
 
-function pushDashboardGuard() {
-  // Mantém um único estado "guard" no topo do histórico.
-  // Isso evita empilhar vários guards e deixar o "voltar 2x para sair" inconsistente.
+function pushDashboardGuard(force) {
+  // Mantém um estado "guard" no topo do histórico para capturar o primeiro voltar.
+  // Quando force=true, arma de novo mesmo que o topo pareça ser guard — útil logo após desbloquear.
   const st = history.state || {};
-  if (st.guard === true) return;
+  if (!force && st.guard === true) return;
   history.pushState({ screen: 'dashboard', guard: true }, '');
+}
+
+function armBackToExitGuard() {
+  // Depois do login, garante uma pilha mínima: base -> guard.
+  // Sem isso, alguns PWAs/navegadores podem sair direto no primeiro voltar.
+  history.replaceState({ screen: 'base' }, '');
+  pushDashboardGuard(true);
 }
 
 window.addEventListener('popstate', function(e) {
@@ -1941,7 +1948,7 @@ function unlock() {
   ls.classList.add('hidden');
   setTimeout(() => ls.style.display = 'none', 350);
   clearExitWarning();
-  pushDashboardGuard();
+  armBackToExitGuard();
 }
 
 function showLockPin() {
@@ -2653,9 +2660,9 @@ if (state.availableBalanceBase == null) {
   saveState();
 }
 
-// Estado inicial: cria uma base e um guard para capturar o primeiro voltar no dashboard.
+// Estado inicial: enquanto a tela de bloqueio está aberta, não armamos ainda o "voltar 2x".
+// O guard é armado no unlock(), para garantir que o primeiro voltar após login mostre o aviso.
 history.replaceState({ screen: 'base' }, '');
-pushDashboardGuard();
 renderDashboard();
 </script>
 </body>
