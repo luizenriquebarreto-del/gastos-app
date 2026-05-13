@@ -1803,8 +1803,10 @@ function clearExitWarning() {
 }
 
 function pushDashboardGuard() {
-  // Mantém sempre um estado "guard" no topo do histórico.
-  // Assim o primeiro voltar nunca sai direto do app.
+  // Mantém um único estado "guard" no topo do histórico.
+  // Isso evita empilhar vários guards e deixar o "voltar 2x para sair" inconsistente.
+  const st = history.state || {};
+  if (st.guard === true) return;
   history.pushState({ screen: 'dashboard', guard: true }, '');
 }
 
@@ -1874,15 +1876,17 @@ window.addEventListener('popstate', function(e) {
   // Dashboard → primeiro voltar mostra aviso; segundo voltar sai.
   if (currentScreen === 'dashboard') {
     if (exitWarning) {
+      // Segundo voltar dentro da janela de tempo: não repõe guard.
+      // Deixa o navegador/Android voltar para fora do app/PWA.
       clearExitWarning();
       isExiting = true;
-      history.back(); // deixa o Android/PWA fechar naturalmente
+      setTimeout(function() { history.back(); }, 0);
       return;
     }
 
     exitWarning = true;
     showToast('🔙 Pressiona novamente para sair');
-    pushDashboardGuard(); // repõe o guard imediatamente, não só depois do timer
+    pushDashboardGuard(); // repõe um único guard para capturar o segundo toque
     exitWarningTimer = setTimeout(clearExitWarning, 2500);
     return;
   }
