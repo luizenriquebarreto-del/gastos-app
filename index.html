@@ -1157,11 +1157,17 @@ function catColor(idx) {
 // ═══════════════════════════════════════════════════════
 let currentScreen = 'dashboard';
 
+function isMainTabScreen(screen) {
+  return screen === 'dashboard' || screen === 'lancamentos' || screen === 'historico';
+}
+
 function navigate(screen, pushHistory) {
   if (screen !== 'dashboard') { exitWarning = false; clearTimeout(exitWarningTimer); }
   isExiting = false;
-  // Push history state so Android back button works
-  if (pushHistory !== false && screen !== 'dashboard') {
+  // Importante: NÃO empilhar histórico para abas principais.
+  // Se empilhar a cada clique/swipe, depois o "voltar 2x para sair" precisa voltar por várias abas antigas.
+  // O histórico fica reservado para telas internas/modais; as abas são controladas pelo nosso guard.
+  if (pushHistory !== false && !isMainTabScreen(screen)) {
     history.pushState({ screen }, '');
   }
   document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
@@ -2497,7 +2503,9 @@ function finishSwipeDrag(commit, dx) {
     newEl.style.transform = 'translate3d(-50%,0,0)';
     newEl.style.opacity = '1';
 
-    if (nextScreen !== 'dashboard') { exitWarning = false; clearTimeout(exitWarningTimer); history.pushState({ screen: nextScreen }, ''); }
+    // Swipe entre abas principais não deve criar histórico.
+    // Isso mantém o voltar previsível: aba secundária -> dashboard; dashboard -> aviso; segundo voltar -> sair.
+    if (nextScreen !== 'dashboard') { exitWarning = false; clearTimeout(exitWarningTimer); }
     isExiting = false;
 
     currentScreen = nextScreen;
