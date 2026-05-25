@@ -1243,9 +1243,22 @@ function escapeHtml(str) {
     .replace(/'/g, '&#039;');
 }
 
-function toggleDashboardCategory(idx) {
-  openDashboardCatIdx = openDashboardCatIdx === idx ? null : idx;
-  renderDashboard();
+function toggleDashboardCategory(idx, event) {
+  if (event) { event.preventDefault(); event.stopPropagation(); }
+
+  const same = openDashboardCatIdx === idx;
+  openDashboardCatIdx = same ? null : idx;
+
+  // Não chama renderDashboard() aqui.
+  // Re-renderizar o dashboard inteiro destruía/recriava KPIs, gráfico e cards,
+  // dando a sensação de que o app estava recarregando.
+  document.querySelectorAll('#cat-list .cat-block').forEach(function(block, i) {
+    const row = block.querySelector('.cat-row');
+    const drawer = block.querySelector('.cat-entry-drawer');
+    const shouldOpen = !same && i === idx;
+    if (row) row.classList.toggle('open', shouldOpen);
+    if (drawer) drawer.classList.toggle('open', shouldOpen);
+  });
 }
 
 
@@ -1310,7 +1323,7 @@ function renderDashboard() {
     `).join('') : '<div class="cat-empty-mini">Nenhum lançamento nesta categoria ainda.</div>';
     return `
       <div class="cat-block fade-up">
-        <div class="cat-row ${isOpen ? 'open' : ''}" onclick="toggleDashboardCategory(${idx})">
+        <div class="cat-row ${isOpen ? 'open' : ''}" onclick="toggleDashboardCategory(${idx}, event)">
           <div class="cat-row-top">
             <div class="cat-name">
               <span class="cat-icon">${cat.icon}</span>
