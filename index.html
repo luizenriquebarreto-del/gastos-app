@@ -149,6 +149,49 @@ body {
 .progress-bar { height:4px; background:var(--bg4); border-radius:999px; overflow:hidden; }
 .progress-fill { height:100%; border-radius:999px; transition:width .6s cubic-bezier(.4,0,.2,1); }
 
+
+/* ── Dashboard category drawer ── */
+.cat-row { cursor:pointer; }
+.cat-row.open { border-radius:14px 14px 0 0; }
+.cat-row .cat-expand-icon {
+  color:var(--slate2); font-size:17px;
+  transition:transform .35s cubic-bezier(.4,0,.2,1);
+  margin-left:6px; flex-shrink:0;
+}
+.cat-row.open .cat-expand-icon { transform:rotate(180deg); }
+.cat-entry-drawer {
+  display:grid; grid-template-rows:0fr;
+  transition:grid-template-rows .38s cubic-bezier(.4,0,.2,1), opacity .25s ease;
+  opacity:0; background:var(--bg2);
+  border:1px solid var(--border); border-top:none;
+  border-radius:0 0 14px 14px;
+  margin-top:-8px;
+}
+.cat-entry-drawer.open { grid-template-rows:1fr; opacity:1; }
+.cat-entry-drawer > div { overflow:hidden; }
+.cat-entry-inner { padding:12px; }
+.cat-entry-scroll {
+  max-height:220px; overflow-y:auto;
+  display:flex; flex-direction:column; gap:8px;
+  padding-right:2px;
+}
+.cat-entry-mini {
+  background:var(--bg3); border:1px solid var(--border);
+  border-radius:12px; padding:11px 12px;
+  display:flex; align-items:center; gap:10px;
+}
+.cat-entry-mini-info { flex:1; min-width:0; }
+.cat-entry-mini-note { font-size:12px; color:var(--white); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.cat-entry-mini-date { font-size:10px; color:var(--slate); margin-top:2px; }
+.cat-entry-mini-amount { font-size:13px; font-weight:800; font-variant-numeric:tabular-nums; flex-shrink:0; }
+.cat-entry-mini-amount.negative { color:var(--emerald-l); }
+.cat-entry-mini-amount.positive { color:var(--white); }
+.cat-empty-mini {
+  text-align:center; color:var(--slate); font-size:12px; line-height:1.45;
+  background:var(--bg3); border:1px solid var(--border); border-radius:12px;
+  padding:16px 12px;
+}
+
 /* ── Chart ── */
 .chart-wrap { padding:16px; }
 .chart-card { background:var(--bg2); border:1px solid var(--border); border-radius:var(--radius); padding:20px; }
@@ -1156,6 +1199,7 @@ function catColor(idx) {
 //  NAVIGATION
 // ═══════════════════════════════════════════════════════
 let currentScreen = 'dashboard';
+let openDashboardCatIdx = null;
 
 function isMainTabScreen(screen) {
   return screen === 'dashboard' || screen === 'lancamentos' || screen === 'historico';
@@ -1189,6 +1233,21 @@ function navigate(screen, pushHistory) {
 }
 
 function goSettings() { previousScreen = currentScreen; navigate('settings'); }
+
+function escapeHtml(str) {
+  return String(str || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
+function toggleDashboardCategory(idx) {
+  openDashboardCatIdx = openDashboardCatIdx === idx ? null : idx;
+  renderDashboard();
+}
+
 
 // ═══════════════════════════════════════════════════════
 //  DASHBOARD
@@ -1226,29 +1285,55 @@ function renderDashboard() {
     </div>
   `;
 
-  // Category list
+  // Category list with expandable mini-history
   const totals = getCategoryTotals();
   const catEl = document.getElementById('cat-list');
+  if (openDashboardCatIdx != null && !state.categories[openDashboardCatIdx]) openDashboardCatIdx = null;
   catEl.innerHTML = state.categories.map((cat, idx) => {
     const spent = totals[cat.name] || 0;
     const pct = cat.budget > 0 ? Math.min(100, (spent / cat.budget) * 100) : 0;
     const isOver = spent > cat.budget;
-    const remaining = cat.budget - spent;
     const color = isOver ? '#F43F5E' : catColor(idx);
+    const isOpen = openDashboardCatIdx === idx;
+    const entries = state.entries
+      .filter(e => e.category === cat.name)
+      .slice()
+      .sort((a,b) => b.date.localeCompare(a.date));
+    const entryHtml = entries.length ? entries.map(e => `
+      <div class="cat-entry-mini">
+        <div class="cat-entry-mini-info">
+          <div class="cat-entry-mini-note">${e.notes ? escapeHtml(e.notes) : 'Sem observação'}</div>
+          <div class="cat-entry-mini-date">${fmtDate(e.date)}</div>
+        </div>
+        <div class="cat-entry-mini-amount ${e.amount < 0 ? 'negative' : 'positive'}">${fmt(e.amount)}</div>
+      </div>
+    `).join('') : '<div class="cat-empty-mini">Nenhum lançamento nesta categoria ainda.</div>';
     return `
-      <div class="cat-row fade-up">
-        <div class="cat-row-top">
-          <div class="cat-name">
-            <span class="cat-icon">${cat.icon}</span>
-            ${cat.name}
+      <div class="cat-block fade-up">
+        <div class="cat-row ${isOpen ? 'open' : ''}" onclick="toggleDashboardCategory(${idx})">
+          <div class="cat-row-top">
+            <div class="cat-name">
+              <span class="cat-icon">${cat.icon}</span>
+              ${cat.name}
+            </div>
+            <div style="display:flex;align-items:center;gap:8px">
+              <div class="cat-amounts">
+                <div class="cat-spent" style="color:${isOver ? 'var(--rose-l)' : 'var(--white)'}">${fmt(spent)}</div>
+                <div class="cat-budget">de ${fmt(cat.budget)}</div>
+              </div>
+              <span class="cat-expand-icon">▾</span>
+            </div>
           </div>
-          <div class="cat-amounts">
-            <div class="cat-spent" style="color:${isOver ? 'var(--rose-l)' : 'var(--white)'}">${fmt(spent)}</div>
-            <div class="cat-budget">de ${fmt(cat.budget)}</div>
+          <div class="progress-bar">
+            <div class="progress-fill" style="width:${pct}%;background:${color}"></div>
           </div>
         </div>
-        <div class="progress-bar">
-          <div class="progress-fill" style="width:${pct}%;background:${color}"></div>
+        <div class="cat-entry-drawer ${isOpen ? 'open' : ''}">
+          <div>
+            <div class="cat-entry-inner">
+              <div class="cat-entry-scroll">${entryHtml}</div>
+            </div>
+          </div>
         </div>
       </div>`;
   }).join('');
@@ -1793,6 +1878,8 @@ function deleteEditCategory() {
   const cat = state.categories[editingCatIdx];
   if (!cat) return;
   state.categories.splice(editingCatIdx, 1);
+  if (openDashboardCatIdx === editingCatIdx) openDashboardCatIdx = null;
+  if (openDashboardCatIdx != null && openDashboardCatIdx > editingCatIdx) openDashboardCatIdx--;
   saveState();
   showToast(`🗑 "${cat.name}" removida`);
   navigate('settings');
