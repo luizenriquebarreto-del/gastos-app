@@ -939,7 +939,7 @@ body.swipe-lock {
       <div class="form-group">
         <label class="form-label">Categoria</label>
         <select class="form-select" id="inp-category" onchange="onCategorySelectChange()"></select>
-        <div id="income-cat-hint" style="display:none;font-size:11px;color:var(--emerald-l);font-weight:600;margin-top:4px;padding:0 4px">💰 Categoria de entrada — valor será registado como positivo no saldo</div>
+        <div id="income-cat-hint" style="display:none;font-size:11px;color:var(--emerald-l);font-weight:600;margin-top:4px;padding:0 4px">Categoria de entrada — valor registado como positivo no saldo</div>
       </div>
       <div class="form-group">
         <label class="form-label">Observações</label>
@@ -1041,8 +1041,12 @@ body.swipe-lock {
       <button type="button" class="toggle-switch on" id="new-cat-chart-toggle" onclick="toggleChartSwitch('new-cat-chart-toggle')" aria-label="Entrar no gráfico"></button>
     </div>
     <div class="chart-toggle-row">
-      <div class="chart-toggle-title">Categoria de entrada 💰</div>
-      <button type="button" class="toggle-switch" id="new-cat-income-toggle" onclick="toggleChartSwitch('new-cat-income-toggle')" aria-label="Categoria de entrada"></button>
+      <div class="chart-toggle-title">Categoria de entrada</div>
+      <button type="button" class="toggle-switch" id="new-cat-income-toggle" onclick="toggleChartSwitch('new-cat-income-toggle'); syncCreditRow('new')" aria-label="Categoria de entrada"></button>
+    </div>
+    <div class="chart-toggle-row" id="new-cat-credit-row" style="display:none">
+      <div class="chart-toggle-title">Só afeta saldo</div>
+      <button type="button" class="toggle-switch" id="new-cat-credit-toggle" onclick="toggleChartSwitch('new-cat-credit-toggle')" aria-label="Só afeta saldo"></button>
     </div>
     <button class="save-edit-btn" onclick="addCategory()">+ Adicionar Categoria</button>
   </div>
@@ -1079,8 +1083,12 @@ body.swipe-lock {
       <button type="button" class="toggle-switch on" id="edit-cat-chart-toggle" onclick="toggleChartSwitch('edit-cat-chart-toggle')" aria-label="Entrar no gráfico"></button>
     </div>
     <div class="chart-toggle-row">
-      <div class="chart-toggle-title">Categoria de entrada 💰</div>
-      <button type="button" class="toggle-switch" id="edit-cat-income-toggle" onclick="toggleChartSwitch('edit-cat-income-toggle')" aria-label="Categoria de entrada"></button>
+      <div class="chart-toggle-title">Categoria de entrada</div>
+      <button type="button" class="toggle-switch" id="edit-cat-income-toggle" onclick="toggleChartSwitch('edit-cat-income-toggle'); syncCreditRow('edit')" aria-label="Categoria de entrada"></button>
+    </div>
+    <div class="chart-toggle-row" id="edit-cat-credit-row" style="display:none">
+      <div class="chart-toggle-title">Só afeta saldo</div>
+      <button type="button" class="toggle-switch" id="edit-cat-credit-toggle" onclick="toggleChartSwitch('edit-cat-credit-toggle')" aria-label="Só afeta saldo"></button>
     </div>
     <button class="save-edit-btn" onclick="saveEditCategory()">✓ Guardar Alterações</button>
     <button class="delete-cat-btn" id="edit-delete-btn" onclick="deleteEditCategory()">🗑 Remover Categoria</button>
@@ -1159,13 +1167,14 @@ const STORAGE_KEY = 'gastos_app_v2';
 const DEFAULT_STATE = {
   currentMonth: '2026-05',
   categories: [
-    { name:'Mercado',  icon:'🛒', budget:280, includeInChart:true },
-    { name:'Roupa',    icon:'👕', budget:40,  includeInChart:true },
-    { name:'Viagem',   icon:'✈️', budget:300, includeInChart:true },
-    { name:'Lazer',    icon:'🎭', budget:100, includeInChart:true },
-    { name:'Compras',  icon:'🛍️', budget:50,  includeInChart:true },
-    { name:'Aluguel',  icon:'🏠', budget:475, includeInChart:true },
-    { name:'Outros',   icon:'📦', budget:25,  includeInChart:true },
+    { name:'Mercado',  icon:'🛒', budget:280, includeInChart:true,  isIncome:false, isCredit:false },
+    { name:'Roupa',    icon:'👕', budget:40,  includeInChart:true,  isIncome:false, isCredit:false },
+    { name:'Viagem',   icon:'✈️', budget:300, includeInChart:true,  isIncome:false, isCredit:false },
+    { name:'Lazer',    icon:'🎭', budget:100, includeInChart:true,  isIncome:false, isCredit:false },
+    { name:'Compras',  icon:'🛍️', budget:50,  includeInChart:true,  isIncome:false, isCredit:false },
+    { name:'Aluguel',  icon:'🏠', budget:475, includeInChart:true,  isIncome:false, isCredit:false },
+    { name:'Outros',   icon:'📦', budget:25,  includeInChart:true,  isIncome:false, isCredit:false },
+    { name:'Bolsa',    icon:'🎓', budget:0,   includeInChart:false, isIncome:true,  isCredit:true  },
   ],
   entries: [
     { id:'e1',  date:'2026-05-01', category:'Compras', amount:1.15,   notes:''                       },
@@ -1215,6 +1224,7 @@ function loadState() {
       s.categories.forEach(function(c) {
         if (c.includeInChart == null) { c.includeInChart = true; changed = true; }
         if (c.isIncome == null) { c.isIncome = false; changed = true; }
+        if (c.isCredit == null) { c.isCredit = false; changed = true; }
       });
       if (changed) localStorage.setItem(STORAGE_KEY, JSON.stringify(s));
     }
@@ -1305,11 +1315,19 @@ function getCatBudget(name) {
 
 const totalBudget = () => state.monthlyBudget != null ? state.monthlyBudget : state.categories.reduce((s, c) => s + c.budget, 0);
 const tetoSum = () => state.categories.reduce((s, c) => s + c.budget, 0);
-const totalSpent = () => currentMonthEntries().reduce((s, e) => s + e.amount, 0);
+
+// Entradas de crédito (Bolsa, etc): afetam só o saldo, não o gasto nem o economizado
+function isCreditEntry(e) {
+  const cat = state.categories.find(c => c.name === e.category);
+  return cat && cat.isCredit === true;
+}
+
+// Gasto = só lançamentos que NÃO são crédito
+const totalSpent = () => currentMonthEntries().filter(e => !isCreditEntry(e)).reduce((s, e) => s + e.amount, 0);
 const totalSaved = () => totalBudget() - totalSpent();
-// Saldo disponível estimado para bater com o banco.
-// Usa a base real do início do mês e aplica todos os lançamentos do mês.
-const availableBalance = () => (state.availableBalanceBase != null ? state.availableBalanceBase : ((state.prevMonthSaved || 0) + totalBudget())) - totalSpent();
+
+// Saldo disponível = base − TODOS os lançamentos (incluindo créditos que aumentam o saldo)
+const availableBalance = () => (state.availableBalanceBase != null ? state.availableBalanceBase : ((state.prevMonthSaved || 0) + totalBudget())) - currentMonthEntries().reduce((s, e) => s + e.amount, 0);
 
 // Same visual rule used by the "Restante" slice in the pie chart:
 // <25% of monthly budget = red, 25%-50% = orange, >50% = green.
@@ -1488,17 +1506,20 @@ function renderDashboard() {
   if (openDashboardCatIdx != null && !state.categories[openDashboardCatIdx]) openDashboardCatIdx = null;
   catEl.innerHTML = state.categories.map((cat, idx) => {
     const spent = totals[cat.name] || 0;
-    const isIncome = cat.isIncome === true;
-    // Income categories: show the absolute value received, with emerald color
-    const displayAmt = isIncome ? Math.abs(spent) : spent;
-    const pct = (!isIncome && cat.budget > 0) ? Math.min(100, (spent / cat.budget) * 100) : 0;
-    const isOver = !isIncome && spent > cat.budget && cat.budget > 0;
-    const color = isIncome ? 'var(--emerald)' : (isOver ? '#F43F5E' : catColor(idx));
-    const amtColor = isIncome ? 'var(--emerald-l)' : (isOver ? 'var(--rose-l)' : 'var(--white)');
-    const subLabel = isIncome
-      ? '<div class="cat-budget" style="color:var(--emerald-l);opacity:.7">entrada</div>'
-      : `<div class="cat-budget">de ${fmt(cat.budget)}</div>`;
-    const incomeBadge = isIncome ? ' 💰' : '';
+    const isCredit = cat.isCredit === true;
+    const isIncome = cat.isIncome === true && !isCredit;
+    const isSpecial = isCredit || isIncome;
+    // Show absolute value for income/credit categories
+    const displayAmt = isSpecial ? Math.abs(spent) : spent;
+    const pct = (!isSpecial && cat.budget > 0) ? Math.min(100, (spent / cat.budget) * 100) : 0;
+    const isOver = !isSpecial && spent > cat.budget && cat.budget > 0;
+    const color = isSpecial ? 'var(--indigo)' : (isOver ? '#F43F5E' : catColor(idx));
+    const amtColor = isCredit ? 'var(--indigo-l)' : (isIncome ? 'var(--emerald-l)' : (isOver ? 'var(--rose-l)' : 'var(--white)'));
+    const subLabel = isCredit
+      ? '<div class="cat-budget" style="color:var(--indigo-l);opacity:.7">crédito</div>'
+      : isIncome
+        ? '<div class="cat-budget" style="color:var(--emerald-l);opacity:.7">entrada</div>'
+        : `<div class="cat-budget">de ${fmt(cat.budget)}</div>`;
     const isOpen = openDashboardCatIdx === idx;
     const entries = currentMonthEntries()
       .filter(e => e.category === cat.name)
@@ -1519,7 +1540,7 @@ function renderDashboard() {
           <div class="cat-row-top">
             <div class="cat-name">
               <span class="cat-icon">${cat.icon}</span>
-              ${cat.name}${incomeBadge}
+              ${cat.name}
             </div>
             <div style="display:flex;align-items:center;gap:8px">
               <div class="cat-amounts">
@@ -1529,7 +1550,7 @@ function renderDashboard() {
               <span class="cat-expand-icon">▾</span>
             </div>
           </div>
-          ${!isIncome ? `<div class="progress-bar"><div class="progress-fill" style="width:${pct}%;background:${color}"></div></div>` : ''}
+          ${!isSpecial ? `<div class="progress-bar"><div class="progress-fill" style="width:${pct}%;background:${color}"></div></div>` : ''}
         </div>
         <div class="cat-entry-drawer ${isOpen ? 'open' : ''}">
           <div>
@@ -1713,7 +1734,15 @@ function onCategorySelectChange() {
   const hint = document.getElementById('income-cat-hint');
   if (!sel || !hint) return;
   const cat = state.categories.find(c => c.name === sel.value);
-  hint.style.display = (cat && cat.isIncome) ? 'block' : 'none';
+  if (cat && cat.isCredit) {
+    hint.style.display = 'block';
+    hint.textContent = 'Crédito — só afeta o saldo disponível, não conta como gasto';
+  } else if (cat && cat.isIncome) {
+    hint.style.display = 'block';
+    hint.textContent = 'Categoria de entrada — valor registado como positivo no saldo';
+  } else {
+    hint.style.display = 'none';
+  }
 }
 
 function renderLancamentos() {
@@ -1725,7 +1754,7 @@ function renderLancamentos() {
 
   // Category select (in modal)
   const sel = document.getElementById('inp-category');
-  if (sel) sel.innerHTML = state.categories.map(c => '<option value="' + c.name + '">' + c.icon + ' ' + c.name + (c.isIncome ? ' 💰' : '') + '</option>').join('');
+  if (sel) sel.innerHTML = state.categories.map(c => '<option value="' + c.name + '">' + c.icon + ' ' + c.name + '</option>').join('');
   onCategorySelectChange();
   renderEntryList();
 }
@@ -1756,13 +1785,18 @@ function renderEntryList() {
 
   el.innerHTML = sorted.map(e => {
     const catDef = state.categories.find(c => c.name === e.category);
-    const isIncome = catDef && catDef.isIncome;
-    const incomeBadge = isIncome ? '<span style="font-size:9px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;color:var(--emerald-l);background:rgba(16,185,129,.12);border:1px solid rgba(16,185,129,.25);border-radius:4px;padding:1px 5px;margin-left:5px;vertical-align:middle">entrada</span>' : '';
+    const isCredit = catDef && catDef.isCredit;
+    const isIncome = catDef && catDef.isIncome && !isCredit;
+    const badge = isCredit
+      ? '<span style="font-size:9px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;color:var(--indigo-l);background:rgba(99,102,241,.12);border:1px solid rgba(99,102,241,.25);border-radius:4px;padding:1px 5px;margin-left:5px;vertical-align:middle">crédito</span>'
+      : isIncome
+        ? '<span style="font-size:9px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;color:var(--emerald-l);background:rgba(16,185,129,.12);border:1px solid rgba(16,185,129,.25);border-radius:4px;padding:1px 5px;margin-left:5px;vertical-align:middle">entrada</span>'
+        : '';
     return `
     <div class="entry-item" id="entry-${e.id}">
       <div class="entry-cat-icon">${getCatIcon(e.category)}</div>
       <div class="entry-info">
-        <div class="entry-cat">${e.category}${incomeBadge}</div>
+        <div class="entry-cat">${e.category}${badge}</div>
         <div class="entry-meta">${fmtDate(e.date)}${e.notes ? ' · ' + e.notes : ''}</div>
       </div>
       <div class="entry-amount ${e.amount < 0 ? 'negative' : 'positive'}">${fmt(e.amount)}</div>
@@ -1785,9 +1819,9 @@ function addEntry() {
   if (!date) { showToast('⚠️ Escolhe uma data'); return; }
   if (isNaN(amount) || amount === 0) { showToast('⚠️ Insere um valor válido'); return; }
 
-  // Categorias de entrada: valor sempre negativo (reduz o gasto, aumenta saldo)
+  // Categorias de entrada ou crédito: valor sempre negativo (reduz o total, aumenta saldo)
   const cat = state.categories.find(c => c.name === category);
-  if (cat && cat.isIncome && amount > 0) amount = -amount;
+  if (cat && (cat.isIncome || cat.isCredit) && amount > 0) amount = -amount;
 
   if (editingId) {
     const entry = state.entries.find(e => e.id === editingId);
@@ -2125,6 +2159,13 @@ function updateEmojiPreview(previewId, val) {
   if (el) el.textContent = val || (previewId.includes('new') ? '📦' : '');
 }
 
+function syncCreditRow(prefix) {
+  const isOn = getChartSwitch(prefix + '-cat-income-toggle');
+  const row = document.getElementById(prefix + '-cat-credit-row');
+  if (row) row.style.display = isOn ? 'flex' : 'none';
+  if (!isOn) setChartSwitch(prefix + '-cat-credit-toggle', false);
+}
+
 function setChartSwitch(id, enabled) {
   var el = document.getElementById(id);
   if (!el) return;
@@ -2151,6 +2192,8 @@ function renderAddCat() {
   document.getElementById('new-emoji-preview').textContent = '📦';
   setChartSwitch('new-cat-chart-toggle', true);
   setChartSwitch('new-cat-income-toggle', false);
+  setChartSwitch('new-cat-credit-toggle', false);
+  document.getElementById('new-cat-credit-row').style.display = 'none';
   renderColorGrid('new-color-grid', PALETTE[0]);
 }
 
@@ -2160,10 +2203,11 @@ function addCategory() {
   const budget = parseFloat(document.getElementById('new-cat-budget').value) || 0;
   const includeInChart = getChartSwitch('new-cat-chart-toggle');
   const isIncome = getChartSwitch('new-cat-income-toggle');
+  const isCredit = isIncome && getChartSwitch('new-cat-credit-toggle');
   if (!name) { showToast('⚠️ Dá um nome à categoria'); return; }
   if (state.categories.find(c => c.name.toLowerCase() === name.toLowerCase())) {
     showToast('⚠️ Categoria já existe'); return; }
-  state.categories.push({ name, icon, budget, color: selectedColor, includeInChart, isIncome });
+  state.categories.push({ name, icon, budget, color: selectedColor, includeInChart, isIncome, isCredit });
   saveState();
   showToast('✓ Categoria adicionada!');
   navigate('settings');
@@ -2180,6 +2224,9 @@ function openEditCat(idx) {
   document.getElementById('edit-cat-budget').value = cat.budget;
   setChartSwitch('edit-cat-chart-toggle', cat.includeInChart !== false);
   setChartSwitch('edit-cat-income-toggle', cat.isIncome === true);
+  setChartSwitch('edit-cat-credit-toggle', cat.isCredit === true);
+  const creditRow = document.getElementById('edit-cat-credit-row');
+  if (creditRow) creditRow.style.display = (cat.isIncome === true) ? 'flex' : 'none';
   document.getElementById('edit-delete-btn').style.display = 'block';
   selectedColor = cat.color || catColor(idx);
   navigate('edit-cat');
@@ -2195,6 +2242,7 @@ function saveEditCategory() {
   cat.color  = selectedColor;
   cat.includeInChart = getChartSwitch('edit-cat-chart-toggle');
   cat.isIncome = getChartSwitch('edit-cat-income-toggle');
+  cat.isCredit = cat.isIncome && getChartSwitch('edit-cat-credit-toggle');
   saveState();
   showToast('✓ Guardado!');
   navigate('settings');
@@ -3086,7 +3134,13 @@ if (Array.isArray(state.categories)) {
   state.categories.forEach(function(c) {
     if (c.includeInChart == null) { c.includeInChart = true; chartMigrationChanged = true; }
     if (c.isIncome == null) { c.isIncome = false; chartMigrationChanged = true; }
+    if (c.isCredit == null) { c.isCredit = false; chartMigrationChanged = true; }
   });
+  // Adiciona Bolsa se não existir ainda
+  if (!state.categories.find(function(c){ return c.name === 'Bolsa'; })) {
+    state.categories.push({ name:'Bolsa', icon:'🎓', budget:0, includeInChart:false, isIncome:true, isCredit:true });
+    chartMigrationChanged = true;
+  }
   if (chartMigrationChanged) saveState();
 }
 
