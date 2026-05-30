@@ -125,37 +125,40 @@ body {
 .kpi-card.amber { --accent:var(--amber); }
 .kpi-card.amber .kpi-value { color:var(--amber); }
 
-/* "Economizado total" — card stays in grid, drawer expands full-width below as a panel */
+/* "Economizado total" — card stays half-width in grid */
 .kpi-drawer-block { display:contents; }
 .kpi-drawer-card {
   width:100%; text-align:left; cursor:pointer; border:none;
   font-family:'Sora',sans-serif; position:relative; overflow:hidden;
 }
-.kpi-drawer-card.open { border-radius:var(--radius); }
+.kpi-drawer-card.open { border-radius:var(--radius) var(--radius) 0 0; }
 .kpi-drawer-icon {
   color:var(--slate2); font-size:13px;
   position:absolute; top:10px; right:10px;
-  transition:transform .35s cubic-bezier(.4,0,.2,1);
+  transition:transform .38s cubic-bezier(.4,0,.2,1);
 }
 .kpi-drawer-card.open .kpi-drawer-icon { transform:rotate(180deg); }
 
-/* Panel expands below the whole KPI grid, full-width */
+/* Gaveta: cola no card "Eco Total" em cima, largura igual ao Saldo Disponível, espaço à esq */
 .savings-drawer-outer {
-  overflow:hidden;
-  max-height:0;
-  transition:max-height .38s cubic-bezier(.4,0,.2,1), opacity .25s ease;
-  opacity:0;
-  margin:0 16px;
+  display:grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows .38s cubic-bezier(.4,0,.2,1),
+              opacity .28s ease;
+  opacity: 0;
+  /* Mesma margem lateral que o kpi-grid (16px), mas com gap à esquerda para não tocar no Eco Mês */
+  margin: 0 16px 0 calc(50% + 5px);
 }
 .savings-drawer-outer.open {
-  max-height:300px;
-  opacity:1;
+  grid-template-rows: 1fr;
+  opacity: 1;
 }
+.savings-drawer-outer > div { overflow: hidden; }
 .savings-drawer {
-  background:var(--bg2);
-  border:1px solid var(--border);
-  border-radius:var(--radius);
-  margin-top:8px;
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 0 0 var(--radius) var(--radius);
+  border-top: none;
 }
 .savings-inner { padding:12px; }
 .savings-scroll { max-height:220px; overflow-y:auto; display:flex; flex-direction:column; gap:8px; padding-right:2px; }
@@ -1458,7 +1461,7 @@ function renderDashboard() {
   const saved = totalSaved();
   const historySaved = totalHistorySaved();
 
-  // KPI cards
+  // KPI cards — Saldo fica fora da grid, entre o drawer e o resto
   const kpiEl = document.getElementById('kpi-grid');
   kpiEl.innerHTML = `
     <div class="kpi-card fade-up">
@@ -1480,25 +1483,35 @@ function renderDashboard() {
         <span class="kpi-drawer-icon">▾</span>
       </button>
     </div>
-    <div class="kpi-card ${balanceToneClass(availableBalance())} fade-up full">
-      <div class="kpi-label">Saldo disponível</div>
-      <div class="kpi-value">${availableBalance().toFixed(2).replace('.',',')} <span>€</span></div>
-    </div>
   `;
 
-  // Drawer full-width below the grid
+  // Drawer: gaveta full-width, aparece entre a grid e o Saldo disponível
   let drawerOuter = document.getElementById('savings-drawer-outer');
   if (!drawerOuter) {
     drawerOuter = document.createElement('div');
     drawerOuter.id = 'savings-drawer-outer';
     drawerOuter.className = 'savings-drawer-outer' + (savingsDrawerOpen ? ' open' : '');
-    drawerOuter.innerHTML = `<div class="savings-drawer"><div class="savings-inner"><div class="savings-scroll">${renderSavingsDrawerContent()}</div></div></div>`;
+    drawerOuter.innerHTML = `<div><div class="savings-drawer"><div class="savings-inner"><div class="savings-scroll">${renderSavingsDrawerContent()}</div></div></div></div>`;
     kpiEl.parentNode.insertBefore(drawerOuter, kpiEl.nextSibling);
   } else {
     drawerOuter.className = 'savings-drawer-outer' + (savingsDrawerOpen ? ' open' : '');
     const scroll = drawerOuter.querySelector('.savings-scroll');
     if (scroll) scroll.innerHTML = renderSavingsDrawerContent();
   }
+
+  // Saldo disponível — card full-width separado da grid
+  let saldoEl = document.getElementById('kpi-saldo');
+  if (!saldoEl) {
+    saldoEl = document.createElement('div');
+    saldoEl.id = 'kpi-saldo';
+    drawerOuter.parentNode.insertBefore(saldoEl, drawerOuter.nextSibling);
+  }
+  saldoEl.style.cssText = 'padding:10px 16px 0';
+  const balClass = balanceToneClass(availableBalance());
+  saldoEl.innerHTML = `<div class="kpi-card ${balClass} fade-up">
+    <div class="kpi-label">Saldo disponível</div>
+    <div class="kpi-value">${availableBalance().toFixed(2).replace('.',',')} <span>€</span></div>
+  </div>`;
 
   // Category list with expandable mini-history
   const totals = getCategoryTotals();
