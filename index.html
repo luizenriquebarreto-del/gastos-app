@@ -919,7 +919,7 @@ body.swipe-lock {
         </div>
         <div class="form-group">
           <label class="form-label">Valor (€)</label>
-          <input type="number" step="0.01" placeholder="0,00" class="form-input" id="inp-amount">
+          <input type="text" inputmode="decimal" placeholder="0,00" class="form-input" id="inp-amount">
         </div>
       </div>
       <div class="form-group">
@@ -1748,7 +1748,9 @@ function renderEntryList() {
 
 function addEntry() {
   const date = document.getElementById('inp-date').value;
-  let amount = parseFloat(document.getElementById('inp-amount').value);
+  // Parse amount — aceita vírgula ou ponto como separador decimal
+  const rawAmount = (document.getElementById('inp-amount').value || '').trim().replace(',', '.');
+  let amount = parseFloat(rawAmount);
   const category = document.getElementById('inp-category').value;
   const notes = document.getElementById('inp-notes').value.trim();
 
@@ -1763,10 +1765,17 @@ function addEntry() {
     const entry = state.entries.find(e => e.id === editingId);
     if (entry) { entry.date = date; entry.amount = amount; entry.category = category; entry.notes = notes; }
     saveState();
-    closeAddModal();
-    cancelEdit();
+    // Fecha o modal sem acionar history.back() para evitar race com popstate
+    skipNextPopstate = true;
+    history.back();
+    document.getElementById('add-modal').classList.remove('open');
+    editingId = null;
+    var t = document.getElementById('add-modal-title'); if (t) t.textContent = 'Novo Lançamento';
+    var btn = document.getElementById('submit-btn'); if (btn) { btn.textContent = '+ Adicionar Lançamento'; btn.classList.remove('editing'); }
+    var cBtn = document.getElementById('cancel-edit-btn'); if (cBtn) cBtn.style.display = 'none';
+    document.getElementById('inp-amount').value = '';
+    document.getElementById('inp-notes').value = '';
     renderEntryList();
-    // Atualiza o dashboard mesmo estando na aba de lançamentos
     renderDashboard();
     showToast('✓ Lançamento atualizado');
   } else {
@@ -1774,9 +1783,11 @@ function addEntry() {
     saveState();
     document.getElementById('inp-amount').value = '';
     document.getElementById('inp-notes').value = '';
-    closeAddModal();
+    // Fecha o modal sem acionar history.back() para evitar race com popstate
+    skipNextPopstate = true;
+    history.back();
+    document.getElementById('add-modal').classList.remove('open');
     renderEntryList();
-    // Atualiza o dashboard mesmo estando na aba de lançamentos
     renderDashboard();
     showToast('✓ Lançamento adicionado');
   }
@@ -2153,7 +2164,7 @@ window.addEventListener('popstate', function(e) {
 
   if (addM && addM.classList.contains('open')) {
     addM.classList.remove('open');
-    if (!editingId) cancelEdit();
+    cancelEdit();
     pushDashboardGuard();
     return;
   }
