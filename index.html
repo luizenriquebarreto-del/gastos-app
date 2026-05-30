@@ -125,15 +125,13 @@ body {
 .kpi-card.amber { --accent:var(--amber); }
 .kpi-card.amber .kpi-value { color:var(--amber); }
 
-/* "Economizado total" — block wraps card + drawer, lives in one grid cell */
-.kpi-drawer-block {
-  display:flex; flex-direction:column;
-}
+/* "Economizado total" — card stays in grid, drawer opens full-width below */
+.kpi-drawer-block { display:contents; }
 .kpi-drawer-card {
   width:100%; text-align:left; cursor:pointer; border:none;
   font-family:'Sora',sans-serif; position:relative; overflow:hidden;
 }
-.kpi-drawer-card.open { border-radius:var(--radius) var(--radius) 0 0; }
+.kpi-drawer-card.open { border-radius:var(--radius) var(--radius) var(--radius) var(--radius); }
 .kpi-drawer-icon {
   color:var(--slate2); font-size:13px;
   position:absolute; top:10px; right:10px;
@@ -141,15 +139,21 @@ body {
 }
 .kpi-drawer-card.open .kpi-drawer-icon { transform:rotate(180deg); }
 
-.savings-drawer {
+/* Full-width drawer below the grid */
+.savings-drawer-outer {
+  padding:0 16px;
   display:grid; grid-template-rows:0fr;
-  transition:grid-template-rows .35s cubic-bezier(.4,0,.2,1), opacity .25s ease;
-  opacity:0; background:var(--bg2);
-  border:1px solid var(--border); border-top:none;
-  border-radius:0 0 var(--radius) var(--radius);
+  transition:grid-template-rows .38s cubic-bezier(.4,0,.2,1), opacity .25s ease;
+  opacity:0;
 }
-.savings-drawer.open { grid-template-rows:1fr; opacity:1; }
-.savings-drawer > div { overflow:hidden; }
+.savings-drawer-outer.open { grid-template-rows:1fr; opacity:1; }
+.savings-drawer-outer > div { overflow:hidden; }
+.savings-drawer {
+  background:var(--bg2);
+  border:1px solid var(--border);
+  border-radius:var(--radius);
+  margin-top:6px;
+}
 .savings-inner { padding:10px; }
 .savings-scroll { max-height:200px; overflow-y:auto; display:flex; flex-direction:column; gap:6px; padding-right:2px; }
 .savings-mini {
@@ -1387,11 +1391,11 @@ function toggleSavingsDrawer(event) {
   if (event) { event.preventDefault(); event.stopPropagation(); }
   savingsDrawerOpen = !savingsDrawerOpen;
   const card = document.getElementById('savings-kpi-card');
-  const drawer = document.getElementById('savings-kpi-drawer');
+  const outer = document.getElementById('savings-drawer-outer');
   if (card) card.classList.toggle('open', savingsDrawerOpen);
-  if (drawer) {
-    drawer.classList.toggle('open', savingsDrawerOpen);
-    const scroll = drawer.querySelector('.savings-scroll');
+  if (outer) {
+    outer.classList.toggle('open', savingsDrawerOpen);
+    const scroll = outer.querySelector('.savings-scroll');
     if (scroll) scroll.innerHTML = renderSavingsDrawerContent();
   }
 }
@@ -1423,21 +1427,32 @@ function renderDashboard() {
       <div class="kpi-label">Economizado este mês</div>
       <div class="kpi-value">${saved.toFixed(2).replace('.',',')} <span>€</span></div>
     </div>
-    <div class="kpi-drawer-block fade-up">
-      <button type="button" class="kpi-card kpi-drawer-card ${balanceToneClass(historySaved)} ${savingsDrawerOpen ? 'open' : ''}" id="savings-kpi-card" onclick="toggleSavingsDrawer(event)">
+    <div class="kpi-drawer-block">
+      <button type="button" class="kpi-card kpi-drawer-card ${balanceToneClass(historySaved)} fade-up ${savingsDrawerOpen ? 'open' : ''}" id="savings-kpi-card" onclick="toggleSavingsDrawer(event)">
         <div class="kpi-label">Economizado total</div>
         <div class="kpi-value">${historySaved.toFixed(2).replace('.',',')} <span>€</span></div>
         <span class="kpi-drawer-icon">▾</span>
       </button>
-      <div class="savings-drawer ${savingsDrawerOpen ? 'open' : ''}" id="savings-kpi-drawer">
-        <div><div class="savings-inner"><div class="savings-scroll">${renderSavingsDrawerContent()}</div></div></div>
-      </div>
     </div>
     <div class="kpi-card ${balanceToneClass(availableBalance())} fade-up full">
       <div class="kpi-label">Saldo disponível</div>
       <div class="kpi-value">${availableBalance().toFixed(2).replace('.',',')} <span>€</span></div>
     </div>
   `;
+
+  // Drawer full-width below the grid
+  let drawerOuter = document.getElementById('savings-drawer-outer');
+  if (!drawerOuter) {
+    drawerOuter = document.createElement('div');
+    drawerOuter.id = 'savings-drawer-outer';
+    drawerOuter.className = 'savings-drawer-outer' + (savingsDrawerOpen ? ' open' : '');
+    drawerOuter.innerHTML = `<div><div class="savings-drawer" id="savings-kpi-drawer"><div class="savings-inner"><div class="savings-scroll">${renderSavingsDrawerContent()}</div></div></div></div>`;
+    kpiEl.parentNode.insertBefore(drawerOuter, kpiEl.nextSibling);
+  } else {
+    drawerOuter.className = 'savings-drawer-outer' + (savingsDrawerOpen ? ' open' : '');
+    const scroll = drawerOuter.querySelector('.savings-scroll');
+    if (scroll) scroll.innerHTML = renderSavingsDrawerContent();
+  }
 
   // Category list with expandable mini-history
   const totals = getCategoryTotals();
@@ -1745,22 +1760,24 @@ function addEntry() {
   if (cat && cat.isIncome && amount > 0) amount = -amount;
 
   if (editingId) {
-    // Update existing entry
     const entry = state.entries.find(e => e.id === editingId);
     if (entry) { entry.date = date; entry.amount = amount; entry.category = category; entry.notes = notes; }
     saveState();
     closeAddModal();
     cancelEdit();
     renderEntryList();
+    // Atualiza o dashboard mesmo estando na aba de lançamentos
+    renderDashboard();
     showToast('✓ Lançamento atualizado');
   } else {
-    // New entry
     state.entries.push({ id:uid(), date, category, amount, notes });
     saveState();
     document.getElementById('inp-amount').value = '';
     document.getElementById('inp-notes').value = '';
     closeAddModal();
     renderEntryList();
+    // Atualiza o dashboard mesmo estando na aba de lançamentos
+    renderDashboard();
     showToast('✓ Lançamento adicionado');
   }
 }
@@ -1801,7 +1818,7 @@ function deleteEntry(id) {
   state.entries = state.entries.filter(e => e.id !== id);
   saveState();
   renderEntryList();
-  if (currentScreen === 'dashboard') renderDashboard();
+  renderDashboard();
   showToast('🗑 Lançamento removido');
 }
 
