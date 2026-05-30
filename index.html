@@ -1126,7 +1126,7 @@ body.swipe-lock {
   <div class="modal">
     <div class="modal-handle"></div>
     <div class="modal-title">Fechar Mês</div>
-    <div class="modal-body">Os dados serão salvos no Histórico, os lançamentos apagados e o mês avançado.</div>
+    <div class="modal-body">Os dados serão salvos no Histórico, os lançamentos serão arquivados e o mês será avançado.</div>
     <div class="modal-summary" id="modal-summary"></div>
     <div class="modal-btns">
       <button class="modal-btn-cancel" onclick="closeModal()">Cancelar</button>
@@ -2004,7 +2004,23 @@ function handleModalClick(e) {
 
 function confirmCloseMonth() {
   const monthEntries = currentMonthEntries();
-  const spent = monthEntries.reduce((s, e) => s + e.amount, 0);
+
+  // Snapshot completo do mês fechado.
+  // Mesmo que uma versão futura limpe state.entries, o botão de reverter consegue recriar
+  // todos os lançamentos exatamente como estavam no momento do fechamento.
+  const entriesSnapshot = monthEntries.map(function(e) {
+    return {
+      id: e.id || uid(),
+      date: e.date,
+      category: e.category,
+      amount: Number(e.amount) || 0,
+      notes: e.notes || ''
+    };
+  });
+  const categoriesSnapshot = (state.categories || []).map(function(c) { return Object.assign({}, c); });
+
+  // Mantém a mesma lógica do Dashboard: crédito/bolsa afeta saldo, mas não conta como gasto.
+  const spent = monthEntries.filter(function(e) { return !isCreditEntry(e); }).reduce((s, e) => s + e.amount, 0);
   const budget = totalBudget();
   const saved = budget - spent;
   const balanceToCarry = availableBalance();
@@ -2025,7 +2041,10 @@ function confirmCloseMonth() {
     };
   });
   state.history.push({ month:state.currentMonth, spent, budget, saved, breakdown,
-    // Snapshot para reverter: base do saldo ANTES de fechar
+    // Snapshots para reverter o fechamento com segurança
+    entriesSnapshot: entriesSnapshot,
+    categoriesSnapshot: categoriesSnapshot,
+    prevMonthlyBudget: state.monthlyBudget,
     prevAvailableBalanceBase: state.availableBalanceBase,
     prevMonthSaved: state.prevMonthSaved
   });
@@ -2087,6 +2106,28 @@ function confirmRevertMonth() {
 
   // Restore state: go back to the closed month
   state.currentMonth = h.month;
+
+  // Restaura categorias e orçamento como estavam no momento do fechamento.
+  // Isso evita lançamentos apontando para categorias apagadas/editadas depois.
+  if (Array.isArray(h.categoriesSnapshot)) {
+    state.categories = h.categoriesSnapshot.map(function(c) { return Object.assign({}, c); });
+  }
+  if (h.prevMonthlyBudget != null) {
+    state.monthlyBudget = h.prevMonthlyBudget;
+  }
+
+  // Restaura todos os lançamentos do mês fechado.
+  // Primeiro remove qualquer lançamento existente daquele mês para não duplicar,
+  // depois recoloca o snapshot salvo no fechamento.
+  if (Array.isArray(h.entriesSnapshot)) {
+    state.entries = (state.entries || []).filter(function(e) {
+      return !e.date || e.date.slice(0, 7) !== h.month;
+    });
+    state.entries = state.entries.concat(h.entriesSnapshot.map(function(e) {
+      return Object.assign({}, e);
+    }));
+  }
+
   // Restore balance base and prevMonthSaved from the snapshot saved at close time
   if (h.prevAvailableBalanceBase != null) {
     state.availableBalanceBase = h.prevAvailableBalanceBase;
