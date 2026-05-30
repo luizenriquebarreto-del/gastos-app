@@ -125,13 +125,13 @@ body {
 .kpi-card.amber { --accent:var(--amber); }
 .kpi-card.amber .kpi-value { color:var(--amber); }
 
-/* "Economizado total" — card stays in grid, drawer opens full-width below */
+/* "Economizado total" — card stays in grid, drawer expands full-width below as a panel */
 .kpi-drawer-block { display:contents; }
 .kpi-drawer-card {
   width:100%; text-align:left; cursor:pointer; border:none;
   font-family:'Sora',sans-serif; position:relative; overflow:hidden;
 }
-.kpi-drawer-card.open { border-radius:var(--radius) var(--radius) var(--radius) var(--radius); }
+.kpi-drawer-card.open { border-radius:var(--radius); }
 .kpi-drawer-icon {
   color:var(--slate2); font-size:13px;
   position:absolute; top:10px; right:10px;
@@ -139,34 +139,37 @@ body {
 }
 .kpi-drawer-card.open .kpi-drawer-icon { transform:rotate(180deg); }
 
-/* Full-width drawer below the grid */
+/* Panel expands below the whole KPI grid, full-width */
 .savings-drawer-outer {
-  padding:0 16px;
-  display:grid; grid-template-rows:0fr;
-  transition:grid-template-rows .38s cubic-bezier(.4,0,.2,1), opacity .25s ease;
+  overflow:hidden;
+  max-height:0;
+  transition:max-height .38s cubic-bezier(.4,0,.2,1), opacity .25s ease;
   opacity:0;
+  margin:0 16px;
 }
-.savings-drawer-outer.open { grid-template-rows:1fr; opacity:1; }
-.savings-drawer-outer > div { overflow:hidden; }
+.savings-drawer-outer.open {
+  max-height:300px;
+  opacity:1;
+}
 .savings-drawer {
   background:var(--bg2);
   border:1px solid var(--border);
   border-radius:var(--radius);
-  margin-top:6px;
+  margin-top:8px;
 }
-.savings-inner { padding:10px; }
-.savings-scroll { max-height:200px; overflow-y:auto; display:flex; flex-direction:column; gap:6px; padding-right:2px; }
+.savings-inner { padding:12px; }
+.savings-scroll { max-height:220px; overflow-y:auto; display:flex; flex-direction:column; gap:8px; padding-right:2px; }
 .savings-mini {
   background:var(--bg3); border:1px solid var(--border);
-  border-radius:10px; padding:9px 11px;
-  display:flex; justify-content:space-between; align-items:center; gap:8px;
+  border-radius:12px; padding:11px 14px;
+  display:flex; justify-content:space-between; align-items:center; gap:10px;
 }
-.savings-month { font-size:12px; font-weight:700; text-transform:capitalize; }
-.savings-sub { font-size:10px; color:var(--slate); margin-top:2px; }
-.savings-val { font-size:13px; font-weight:800; font-variant-numeric:tabular-nums; white-space:nowrap; }
+.savings-month { font-size:13px; font-weight:700; text-transform:capitalize; }
+.savings-sub { font-size:11px; color:var(--slate); margin-top:2px; }
+.savings-val { font-size:14px; font-weight:800; font-variant-numeric:tabular-nums; white-space:nowrap; }
 .savings-val.positive { color:var(--emerald-l); }
 .savings-val.negative { color:var(--rose-l); }
-.savings-empty { font-size:12px; color:var(--slate); text-align:center; padding:10px; font-style:italic; }
+.savings-empty { font-size:12px; color:var(--slate); text-align:center; padding:12px; font-style:italic; }
 
 /* ── Section header ── */
 .section-hdr {
@@ -332,6 +335,17 @@ body {
 .hist-val { font-size:13px; font-weight:700; font-variant-numeric:tabular-nums; }
 .hist-saved { color:var(--emerald-l); }
 .hist-over { color:var(--rose-l); }
+
+/* Revert button in history drawer */
+.hist-revert-btn {
+  width:100%; margin-top:14px; padding:12px; border-radius:12px;
+  border:1px solid rgba(244,63,94,.3);
+  background:rgba(244,63,94,.07); color:var(--rose-l);
+  font-family:'Sora',sans-serif; font-size:13px; font-weight:700;
+  cursor:pointer; transition:all .15s; display:flex; align-items:center;
+  justify-content:center; gap:8px; letter-spacing:.2px;
+}
+.hist-revert-btn:active { background:rgba(244,63,94,.18); transform:scale(.97); }
 
 /* ── Modal ── */
 .modal-backdrop {
@@ -1100,6 +1114,20 @@ body.swipe-lock {
   </div>
 </div>
 
+<!-- ═══════════════ MODAL REVERTER MÊS ═══════════════ -->
+<div class="modal-backdrop" id="revert-modal" onclick="handleRevertModalClick(event)">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <div class="modal-title">Reverter Fechamento</div>
+    <div class="modal-body" id="revert-modal-body">Isso irá reabrir o mês, restaurar os lançamentos e desfazer o avanço do mês.</div>
+    <div class="modal-summary" id="revert-modal-summary"></div>
+    <div class="modal-btns">
+      <button class="modal-btn-cancel" onclick="closeRevertModal()">Cancelar</button>
+      <button class="modal-btn-confirm" style="background:var(--rose)" onclick="confirmRevertMonth()">↩ Reverter</button>
+    </div>
+  </div>
+</div>
+
 
 <div class="modal-backdrop" id="budget-modal" onclick="handleBudgetModalClick(event)">
   <div class="modal">
@@ -1446,7 +1474,7 @@ function renderDashboard() {
     drawerOuter = document.createElement('div');
     drawerOuter.id = 'savings-drawer-outer';
     drawerOuter.className = 'savings-drawer-outer' + (savingsDrawerOpen ? ' open' : '');
-    drawerOuter.innerHTML = `<div><div class="savings-drawer" id="savings-kpi-drawer"><div class="savings-inner"><div class="savings-scroll">${renderSavingsDrawerContent()}</div></div></div></div>`;
+    drawerOuter.innerHTML = `<div class="savings-drawer"><div class="savings-inner"><div class="savings-scroll">${renderSavingsDrawerContent()}</div></div></div>`;
     kpiEl.parentNode.insertBefore(drawerOuter, kpiEl.nextSibling);
   } else {
     drawerOuter.className = 'savings-drawer-outer' + (savingsDrawerOpen ? ' open' : '');
@@ -1846,6 +1874,11 @@ function renderHistorico() {
   el.innerHTML = sorted.map(function(h) {
     var isSaved = h.saved >= 0;
     var mid = 'hist' + h.month.replace('-','');
+    // Only the most recent closed month can be reverted (index 0 of sorted = most recent)
+    var isMostRecent = h.month === sorted[0].month;
+    var revertBtn = isMostRecent
+      ? '<button class="hist-revert-btn" onclick="openRevertModal(\'' + h.month + '\');event.stopPropagation()">↩ Reverter fechamento</button>'
+      : '';
     return '<div class="hist-entry" data-mid="' + mid + '">'
       + '<div class="hist-card" id="card-' + mid + '">'
         + '<div class="hist-month" style="display:flex;justify-content:space-between;align-items:center">'
@@ -1862,6 +1895,7 @@ function renderHistorico() {
           + '<div id="legend-' + mid + '" class="chart-legend" style="margin-top:12px"></div>'
           + '<div id="analysis-' + mid + '" class="hist-analysis-card"></div>'
           + '<div id="breakdown-' + mid + '" style="margin-top:12px"></div>'
+          + revertBtn
         + '</div>'
       + '</div>'
       + '</div>';
@@ -1923,7 +1957,11 @@ function confirmCloseMonth() {
       notes: catEntries.map(function(e) { return e.notes || ''; }).filter(Boolean)
     };
   });
-  state.history.push({ month:state.currentMonth, spent, budget, saved, breakdown });
+  state.history.push({ month:state.currentMonth, spent, budget, saved, breakdown,
+    // Snapshot para reverter: base do saldo ANTES de fechar
+    prevAvailableBalanceBase: state.availableBalanceBase,
+    prevMonthSaved: state.prevMonthSaved
+  });
 
   // Advance month
   const [y, m] = state.currentMonth.split('-').map(Number);
@@ -1946,9 +1984,62 @@ function confirmCloseMonth() {
   showToast('✓ Mês fechado com sucesso!');
 }
 
-// ═══════════════════════════════════════════════════════
-//  CONFIGURAÇÕES
-// ═══════════════════════════════════════════════════════
+// ─── Reverter fechamento ───────────────────────────────
+let revertingMonth = null;
+
+function openRevertModal(month) {
+  revertingMonth = month;
+  const h = (state.history || []).find(x => x.month === month);
+  if (!h) return;
+  document.getElementById('revert-modal-summary').innerHTML =
+    '<div class="modal-row"><span class="label">📅 Mês</span><span class="val">' + fmtMonth(month) + '</span></div>'
+    + '<div class="modal-row"><span class="label">💸 Gasto registado</span><span class="val">' + fmt(h.spent) + '</span></div>'
+    + '<div class="modal-row"><span class="label">💹 Economizado</span><span class="val">' + fmt(h.saved) + '</span></div>';
+  document.getElementById('revert-modal').classList.add('open');
+}
+
+function closeRevertModal() {
+  document.getElementById('revert-modal').classList.remove('open');
+  revertingMonth = null;
+}
+
+function handleRevertModalClick(e) {
+  if (e.target === document.getElementById('revert-modal')) closeRevertModal();
+}
+
+function confirmRevertMonth() {
+  if (!revertingMonth) return;
+  // Must be the most recent history entry
+  const sorted = (state.history || []).slice().sort((a,b) => b.month.localeCompare(a.month));
+  if (!sorted.length || sorted[0].month !== revertingMonth) {
+    showToast('⚠️ Só é possível reverter o mês mais recente');
+    closeRevertModal();
+    return;
+  }
+  const h = sorted[0];
+
+  // Restore state: go back to the closed month
+  state.currentMonth = h.month;
+  // Restore balance base and prevMonthSaved from the snapshot saved at close time
+  if (h.prevAvailableBalanceBase != null) {
+    state.availableBalanceBase = h.prevAvailableBalanceBase;
+  } else {
+    // Fallback for history entries before this feature: best-effort reconstruction
+    state.availableBalanceBase = state.availableBalanceBase + h.spent;
+  }
+  if (h.prevMonthSaved != null) {
+    state.prevMonthSaved = h.prevMonthSaved;
+  }
+
+  // Remove from history
+  state.history = state.history.filter(x => x.month !== revertingMonth);
+
+  saveState();
+  closeRevertModal();
+  renderDashboard();
+  renderHistorico();
+  showToast('↩ Fechamento revertido — volta a ' + fmtMonth(h.month));
+}
 const PALETTE = [
   // Blues & Purples
   '#7C3AED','#A78BFA','#2563EB','#38BDF8',
