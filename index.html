@@ -125,18 +125,27 @@ body {
 .kpi-card.amber { --accent:var(--amber); }
 .kpi-card.amber .kpi-value { color:var(--amber); }
 
-.kpi-drawer-block { grid-column:1/-1; display:flex; flex-direction:column; gap:0; }
-.kpi-drawer-card { width:100%; text-align:left; cursor:pointer; border:none; font-family:'Sora',sans-serif; }
+/* "Economizado total" — fits in the 2-col grid like the other cards, opens a drawer below the whole grid row */
+.kpi-drawer-block { display:contents; }
+.kpi-drawer-card {
+  width:100%; text-align:left; cursor:pointer; border:none;
+  font-family:'Sora',sans-serif;
+  /* Inherits .kpi-card styles; extra overrides: */
+  position:relative; overflow:hidden;
+}
 .kpi-drawer-card.open { border-radius:var(--radius) var(--radius) 0 0; }
-.kpi-drawer-icon { color:var(--slate2); font-size:18px; transition:transform .35s cubic-bezier(.4,0,.2,1); }
+.kpi-drawer-icon { color:var(--slate2); font-size:14px; position:absolute; top:10px; right:12px; transition:transform .35s cubic-bezier(.4,0,.2,1); }
 .kpi-drawer-card.open .kpi-drawer-icon { transform:rotate(180deg); }
+
+/* Drawer lives OUTSIDE the grid (after it) so it can span full width */
+.savings-drawer-wrap { padding:0 16px; margin-top:-6px; display:none; }
+.savings-drawer-wrap.open { display:block; }
 .savings-drawer {
   display:grid; grid-template-rows:0fr;
   transition:grid-template-rows .35s cubic-bezier(.4,0,.2,1), opacity .25s ease;
   opacity:0; background:var(--bg2);
   border:1px solid var(--border); border-top:none;
   border-radius:0 0 var(--radius) var(--radius);
-  margin-top:-1px;
 }
 .savings-drawer.open { grid-template-rows:1fr; opacity:1; }
 .savings-drawer > div { overflow:hidden; }
@@ -770,8 +779,33 @@ body.swipe-lock {
   background:linear-gradient(270deg, rgba(0,0,0,.42), transparent);
 }
 
+/* ── Chart toggle row (add/edit category) ── */
+.chart-toggle-row {
+  display:flex; align-items:center; justify-content:space-between; gap:12px;
+  background:var(--bg2); border:1px solid var(--border);
+  border-radius:12px; padding:14px 16px;
+}
+.chart-toggle-title { font-size:14px; font-weight:600; color:var(--white); }
+
+/* ── Toggle switch ── */
+.toggle-switch {
+  position:relative; flex-shrink:0;
+  width:48px; height:28px; border-radius:99px; border:none;
+  background:var(--bg4); cursor:pointer;
+  transition:background .2s;
+  outline:none;
+}
+.toggle-switch::after {
+  content:''; position:absolute;
+  top:4px; left:4px;
+  width:20px; height:20px; border-radius:50%;
+  background:var(--slate2); transition:transform .2s, background .2s;
+}
+.toggle-switch.on { background:rgba(99,102,241,.25); border:1px solid var(--indigo); }
+.toggle-switch.on::after { transform:translateX(20px); background:var(--indigo-l); }
+.toggle-switch:active { transform:scale(.93); }
+
 </style>
-</head>
 <body>
 
 <div id="lock-screen">
@@ -983,10 +1017,7 @@ body.swipe-lock {
       <div class="color-grid-lg" id="new-color-grid"></div>
     </div>
     <div class="chart-toggle-row">
-      <div class="chart-toggle-info">
-        <div class="chart-toggle-title">Entrar no gráfico</div>
-        <div class="chart-toggle-desc">Desliga se quiser que essa categoria conte no saldo, mas não apareça na pizza.</div>
-      </div>
+      <div class="chart-toggle-title">Entrar no gráfico</div>
       <button type="button" class="toggle-switch on" id="new-cat-chart-toggle" onclick="toggleChartSwitch('new-cat-chart-toggle')" aria-label="Entrar no gráfico"></button>
     </div>
     <button class="save-edit-btn" onclick="addCategory()">+ Adicionar Categoria</button>
@@ -1020,10 +1051,7 @@ body.swipe-lock {
       <div class="color-grid-lg" id="edit-color-grid"></div>
     </div>
     <div class="chart-toggle-row">
-      <div class="chart-toggle-info">
-        <div class="chart-toggle-title">Entrar no gráfico</div>
-        <div class="chart-toggle-desc">Desliga se quiser que essa categoria conte no saldo, mas não apareça na pizza.</div>
-      </div>
+      <div class="chart-toggle-title">Entrar no gráfico</div>
       <button type="button" class="toggle-switch on" id="edit-cat-chart-toggle" onclick="toggleChartSwitch('edit-cat-chart-toggle')" aria-label="Entrar no gráfico"></button>
     </div>
     <button class="save-edit-btn" onclick="saveEditCategory()">✓ Guardar Alterações</button>
@@ -1349,8 +1377,14 @@ function toggleSavingsDrawer(event) {
   savingsDrawerOpen = !savingsDrawerOpen;
   const card = document.getElementById('savings-kpi-card');
   const drawer = document.getElementById('savings-kpi-drawer');
+  const wrap = document.getElementById('savings-drawer-wrap');
   if (card) card.classList.toggle('open', savingsDrawerOpen);
-  if (drawer) drawer.classList.toggle('open', savingsDrawerOpen);
+  if (wrap) wrap.classList.toggle('open', savingsDrawerOpen);
+  if (drawer) {
+    drawer.classList.toggle('open', savingsDrawerOpen);
+    const scroll = drawer.querySelector('.savings-scroll');
+    if (scroll && savingsDrawerOpen) scroll.innerHTML = renderSavingsDrawerContent();
+  }
 }
 
 
@@ -1380,25 +1414,34 @@ function renderDashboard() {
       <div class="kpi-label">Economizado este mês</div>
       <div class="kpi-value">${saved.toFixed(2).replace('.',',')} <span>€</span></div>
     </div>
-    <div class="kpi-drawer-block fade-up">
-      <button type="button" class="kpi-card kpi-drawer-card ${balanceToneClass(historySaved)} ${savingsDrawerOpen ? 'open' : ''}" id="savings-kpi-card" onclick="toggleSavingsDrawer(event)">
-        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">
-          <div>
-            <div class="kpi-label">Economizado total</div>
-            <div class="kpi-value">${historySaved.toFixed(2).replace('.',',')} <span>€</span></div>
-          </div>
-          <span class="kpi-drawer-icon">▾</span>
-        </div>
-      </button>
-      <div class="savings-drawer ${savingsDrawerOpen ? 'open' : ''}" id="savings-kpi-drawer">
-        <div><div class="savings-inner"><div class="savings-scroll">${renderSavingsDrawerContent()}</div></div></div>
-      </div>
-    </div>
+    <button type="button" class="kpi-card kpi-drawer-card ${balanceToneClass(historySaved)} fade-up ${savingsDrawerOpen ? 'open' : ''}" id="savings-kpi-card" onclick="toggleSavingsDrawer(event)">
+      <div class="kpi-label">Economizado total</div>
+      <div class="kpi-value">${historySaved.toFixed(2).replace('.',',')} <span>€</span></div>
+      <span class="kpi-drawer-icon">▾</span>
+    </button>
     <div class="kpi-card ${balanceToneClass(availableBalance())} fade-up full">
       <div class="kpi-label">Saldo disponível</div>
       <div class="kpi-value">${availableBalance().toFixed(2).replace('.',',')} <span>€</span></div>
     </div>
   `;
+
+  // Drawer for savings history (placed outside grid so it spans full width)
+  let drawerWrap = document.getElementById('savings-drawer-wrap');
+  if (!drawerWrap) {
+    drawerWrap = document.createElement('div');
+    drawerWrap.id = 'savings-drawer-wrap';
+    drawerWrap.className = 'savings-drawer-wrap' + (savingsDrawerOpen ? ' open' : '');
+    drawerWrap.innerHTML = `<div class="savings-drawer ${savingsDrawerOpen ? 'open' : ''}" id="savings-kpi-drawer"><div><div class="savings-inner"><div class="savings-scroll">${renderSavingsDrawerContent()}</div></div></div></div>`;
+    kpiEl.parentNode.insertBefore(drawerWrap, kpiEl.nextSibling);
+  } else {
+    drawerWrap.className = 'savings-drawer-wrap' + (savingsDrawerOpen ? ' open' : '');
+    const d = document.getElementById('savings-kpi-drawer');
+    if (d) {
+      d.classList.toggle('open', savingsDrawerOpen);
+      const scroll = d.querySelector('.savings-scroll');
+      if (scroll) scroll.innerHTML = renderSavingsDrawerContent();
+    }
+  }
 
   // Category list with expandable mini-history
   const totals = getCategoryTotals();
