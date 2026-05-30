@@ -125,6 +125,35 @@ body {
 .kpi-card.amber { --accent:var(--amber); }
 .kpi-card.amber .kpi-value { color:var(--amber); }
 
+.kpi-drawer-block { grid-column:1/-1; display:flex; flex-direction:column; gap:0; }
+.kpi-drawer-card { width:100%; text-align:left; cursor:pointer; border:none; font-family:'Sora',sans-serif; }
+.kpi-drawer-card.open { border-radius:var(--radius) var(--radius) 0 0; }
+.kpi-drawer-icon { color:var(--slate2); font-size:18px; transition:transform .35s cubic-bezier(.4,0,.2,1); }
+.kpi-drawer-card.open .kpi-drawer-icon { transform:rotate(180deg); }
+.savings-drawer {
+  display:grid; grid-template-rows:0fr;
+  transition:grid-template-rows .35s cubic-bezier(.4,0,.2,1), opacity .25s ease;
+  opacity:0; background:var(--bg2);
+  border:1px solid var(--border); border-top:none;
+  border-radius:0 0 var(--radius) var(--radius);
+  margin-top:-1px;
+}
+.savings-drawer.open { grid-template-rows:1fr; opacity:1; }
+.savings-drawer > div { overflow:hidden; }
+.savings-inner { padding:12px; }
+.savings-scroll { max-height:180px; overflow-y:auto; display:flex; flex-direction:column; gap:8px; padding-right:2px; }
+.savings-mini {
+  background:var(--bg3); border:1px solid var(--border);
+  border-radius:12px; padding:10px 12px;
+  display:flex; justify-content:space-between; align-items:center; gap:12px;
+}
+.savings-month { font-size:13px; font-weight:700; text-transform:capitalize; }
+.savings-sub { font-size:11px; color:var(--slate); margin-top:2px; }
+.savings-val { font-size:14px; font-weight:800; font-variant-numeric:tabular-nums; white-space:nowrap; }
+.savings-val.positive { color:var(--emerald-l); }
+.savings-val.negative { color:var(--rose-l); }
+.savings-empty { font-size:12px; color:var(--slate); text-align:center; padding:10px; font-style:italic; }
+
 /* ── Section header ── */
 .section-hdr {
   display:flex; align-items:center; justify-content:space-between;
@@ -953,6 +982,13 @@ body.swipe-lock {
       <div class="edit-field-label">Cor no Gráfico</div>
       <div class="color-grid-lg" id="new-color-grid"></div>
     </div>
+    <div class="chart-toggle-row">
+      <div class="chart-toggle-info">
+        <div class="chart-toggle-title">Entrar no gráfico</div>
+        <div class="chart-toggle-desc">Desliga se quiser que essa categoria conte no saldo, mas não apareça na pizza.</div>
+      </div>
+      <button type="button" class="toggle-switch on" id="new-cat-chart-toggle" onclick="toggleChartSwitch('new-cat-chart-toggle')" aria-label="Entrar no gráfico"></button>
+    </div>
     <button class="save-edit-btn" onclick="addCategory()">+ Adicionar Categoria</button>
   </div>
 </div>
@@ -982,6 +1018,13 @@ body.swipe-lock {
     <div class="edit-field-group">
       <div class="edit-field-label">Cor no Gráfico</div>
       <div class="color-grid-lg" id="edit-color-grid"></div>
+    </div>
+    <div class="chart-toggle-row">
+      <div class="chart-toggle-info">
+        <div class="chart-toggle-title">Entrar no gráfico</div>
+        <div class="chart-toggle-desc">Desliga se quiser que essa categoria conte no saldo, mas não apareça na pizza.</div>
+      </div>
+      <button type="button" class="toggle-switch on" id="edit-cat-chart-toggle" onclick="toggleChartSwitch('edit-cat-chart-toggle')" aria-label="Entrar no gráfico"></button>
     </div>
     <button class="save-edit-btn" onclick="saveEditCategory()">✓ Guardar Alterações</button>
     <button class="delete-cat-btn" id="edit-delete-btn" onclick="deleteEditCategory()">🗑 Remover Categoria</button>
@@ -1046,13 +1089,13 @@ const STORAGE_KEY = 'gastos_app_v2';
 const DEFAULT_STATE = {
   currentMonth: '2026-05',
   categories: [
-    { name:'Mercado',  icon:'🛒', budget:280 },
-    { name:'Roupa',    icon:'👕', budget:40  },
-    { name:'Viagem',   icon:'✈️', budget:300 },
-    { name:'Lazer',    icon:'🎭', budget:100 },
-    { name:'Compras',  icon:'🛍️', budget:50  },
-    { name:'Aluguel',  icon:'🏠', budget:475 },
-    { name:'Outros',   icon:'📦', budget:25  },
+    { name:'Mercado',  icon:'🛒', budget:280, includeInChart:true },
+    { name:'Roupa',    icon:'👕', budget:40,  includeInChart:true },
+    { name:'Viagem',   icon:'✈️', budget:300, includeInChart:true },
+    { name:'Lazer',    icon:'🎭', budget:100, includeInChart:true },
+    { name:'Compras',  icon:'🛍️', budget:50,  includeInChart:true },
+    { name:'Aluguel',  icon:'🏠', budget:475, includeInChart:true },
+    { name:'Outros',   icon:'📦', budget:25,  includeInChart:true },
   ],
   entries: [
     { id:'e1',  date:'2026-05-01', category:'Compras', amount:1.15,   notes:''                       },
@@ -1096,6 +1139,14 @@ function loadState() {
       s.availableBalanceBase = (s.prevMonthSaved || 0) + (s.monthlyBudget || 0);
       localStorage.setItem(STORAGE_KEY, JSON.stringify(s));
     }
+    // Migração: categorias antigas entram no gráfico por padrão.
+    if (Array.isArray(s.categories)) {
+      let changed = false;
+      s.categories.forEach(function(c) {
+        if (c.includeInChart == null) { c.includeInChart = true; changed = true; }
+      });
+      if (changed) localStorage.setItem(STORAGE_KEY, JSON.stringify(s));
+    }
     return s;
   } catch(e) {
     return JSON.parse(JSON.stringify(DEFAULT_STATE));
@@ -1118,8 +1169,11 @@ let isExiting = false;
 const DEFAULT_CATEGORY_ICONS = Object.fromEntries(DEFAULT_STATE.categories.map(c => [c.name, c.icon]));
 state.categories.forEach(cat => {
   if (DEFAULT_CATEGORY_ICONS[cat.name]) cat.icon = DEFAULT_CATEGORY_ICONS[cat.name];
+  if (cat.includeInChart == null) cat.includeInChart = true;
 });
+saveState();
 let pieChart = null;
+let savingsDrawerOpen = false;
 
 // ═══════════════════════════════════════════════════════
 //  HELPERS
@@ -1149,10 +1203,19 @@ const fmtDate = (dt) => {
 
 const uid = () => 'e' + Date.now() + Math.random().toString(36).slice(2,6);
 
-function getCategoryTotals() {
+function isEntryInCurrentMonth(e) {
+  return !!e && typeof e.date === 'string' && e.date.slice(0,7) === state.currentMonth;
+}
+
+function currentMonthEntries() {
+  return (state.entries || []).filter(isEntryInCurrentMonth);
+}
+
+function getCategoryTotals(entries) {
+  const list = entries || currentMonthEntries();
   const totals = {};
   state.categories.forEach(c => totals[c.name] = 0);
-  state.entries.forEach(e => {
+  list.forEach(e => {
     if (totals[e.category] !== undefined) totals[e.category] += e.amount;
     else totals[e.category] = e.amount;
   });
@@ -1171,7 +1234,7 @@ function getCatBudget(name) {
 
 const totalBudget = () => state.monthlyBudget != null ? state.monthlyBudget : state.categories.reduce((s, c) => s + c.budget, 0);
 const tetoSum = () => state.categories.reduce((s, c) => s + c.budget, 0);
-const totalSpent = () => state.entries.reduce((s, e) => s + e.amount, 0);
+const totalSpent = () => currentMonthEntries().reduce((s, e) => s + e.amount, 0);
 const totalSaved = () => totalBudget() - totalSpent();
 // Saldo disponível estimado para bater com o banco.
 // Usa a base real do início do mês e aplica todos os lançamentos do mês.
@@ -1261,6 +1324,35 @@ function toggleDashboardCategory(idx, event) {
   });
 }
 
+function totalHistorySaved() {
+  return (state.history || []).reduce(function(sum, h) {
+    return sum + (Number(h.saved) || 0);
+  }, 0);
+}
+
+function renderSavingsDrawerContent() {
+  const hist = (state.history || []).slice().sort(function(a,b){ return b.month.localeCompare(a.month); });
+  if (!hist.length) return '<div class="savings-empty">Nenhum mês fechado ainda.</div>';
+  return hist.map(function(h) {
+    const saved = Number(h.saved) || 0;
+    const cls = saved >= 0 ? 'positive' : 'negative';
+    return '<div class="savings-mini">'
+      + '<div><div class="savings-month">' + fmtMonth(h.month) + '</div>'
+      + '<div class="savings-sub">Gasto: ' + fmt(Number(h.spent)||0) + ' · Orçamento: ' + fmt(Number(h.budget)||0) + '</div></div>'
+      + '<div class="savings-val ' + cls + '">' + fmt(saved) + '</div>'
+      + '</div>';
+  }).join('');
+}
+
+function toggleSavingsDrawer(event) {
+  if (event) { event.preventDefault(); event.stopPropagation(); }
+  savingsDrawerOpen = !savingsDrawerOpen;
+  const card = document.getElementById('savings-kpi-card');
+  const drawer = document.getElementById('savings-kpi-drawer');
+  if (card) card.classList.toggle('open', savingsDrawerOpen);
+  if (drawer) drawer.classList.toggle('open', savingsDrawerOpen);
+}
+
 
 // ═══════════════════════════════════════════════════════
 //  DASHBOARD
@@ -1271,7 +1363,7 @@ function renderDashboard() {
   const spent = totalSpent();
   const budget = totalBudget();
   const saved = totalSaved();
-  const prevSaved = state.prevMonthSaved || 0;
+  const historySaved = totalHistorySaved();
 
   // KPI cards
   const kpiEl = document.getElementById('kpi-grid');
@@ -1288,9 +1380,19 @@ function renderDashboard() {
       <div class="kpi-label">Economizado este mês</div>
       <div class="kpi-value">${saved.toFixed(2).replace('.',',')} <span>€</span></div>
     </div>
-    <div class="kpi-card ${balanceToneClass(prevSaved)} fade-up">
-      <div class="kpi-label">Mês anterior</div>
-      <div class="kpi-value">${prevSaved.toFixed(2).replace('.',',')} <span>€</span></div>
+    <div class="kpi-drawer-block fade-up">
+      <button type="button" class="kpi-card kpi-drawer-card ${balanceToneClass(historySaved)} ${savingsDrawerOpen ? 'open' : ''}" id="savings-kpi-card" onclick="toggleSavingsDrawer(event)">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">
+          <div>
+            <div class="kpi-label">Economizado total</div>
+            <div class="kpi-value">${historySaved.toFixed(2).replace('.',',')} <span>€</span></div>
+          </div>
+          <span class="kpi-drawer-icon">▾</span>
+        </div>
+      </button>
+      <div class="savings-drawer ${savingsDrawerOpen ? 'open' : ''}" id="savings-kpi-drawer">
+        <div><div class="savings-inner"><div class="savings-scroll">${renderSavingsDrawerContent()}</div></div></div>
+      </div>
     </div>
     <div class="kpi-card ${balanceToneClass(availableBalance())} fade-up full">
       <div class="kpi-label">Saldo disponível</div>
@@ -1308,7 +1410,7 @@ function renderDashboard() {
     const isOver = spent > cat.budget;
     const color = isOver ? '#F43F5E' : catColor(idx);
     const isOpen = openDashboardCatIdx === idx;
-    const entries = state.entries
+    const entries = currentMonthEntries()
       .filter(e => e.category === cat.name)
       .slice()
       .sort((a,b) => b.date.localeCompare(a.date));
@@ -1361,6 +1463,7 @@ function renderChart(totals) {
   const colors = [];
 
   state.categories.forEach((cat, idx) => {
+    if (cat.includeInChart === false) return;
     const v = Math.max(0, totals[cat.name] || 0);
     if (v > 0) {
       labels.push(cat.name);
@@ -1531,7 +1634,8 @@ function renderLancamentos() {
 }
 
 function renderEntryList() {
-  let filtered = state.entries;
+  let filtered = state.entries || [];
+  if (!filterDateFrom && !filterDateTo) filtered = filtered.filter(isEntryInCurrentMonth);
   if (filterCats.length) filtered = filtered.filter(e => filterCats.includes(e.category));
   if (filterDateFrom) filtered = filtered.filter(e => e.date >= filterDateFrom);
   if (filterDateTo)   filtered = filtered.filter(e => e.date <= filterDateTo);
@@ -1548,7 +1652,7 @@ function renderEntryList() {
   if (sorted.length === 0) {
     el.innerHTML = `<div class="empty-state">
       <div class="empty-icon">📭</div>
-      <div class="empty-text">Nenhum lançamento ainda.<br>Adicione o primeiro acima!</div>
+      <div class="empty-text">Nenhum lançamento neste período.<br>Adicione um lançamento ou ajuste o filtro!</div>
     </div>`;
     return;
   }
@@ -1708,19 +1812,21 @@ function handleModalClick(e) {
 }
 
 function confirmCloseMonth() {
-  const spent = totalSpent();
+  const monthEntries = currentMonthEntries();
+  const spent = monthEntries.reduce((s, e) => s + e.amount, 0);
   const budget = totalBudget();
-  const saved = totalSaved();
+  const saved = budget - spent;
   const balanceToCarry = availableBalance();
 
   // Save to history
-  const catTotals = getCategoryTotals();
+  const catTotals = getCategoryTotals(monthEntries);
   const breakdown = state.categories.map(function(c) {
-    const catEntries = state.entries.filter(function(e) { return e.category === c.name && e.amount > 0; });
+    const catEntries = monthEntries.filter(function(e) { return e.category === c.name && e.amount > 0; });
     return {
       name: c.name,
       icon: c.icon,
       color: c.color,
+      includeInChart: c.includeInChart !== false,
       budget: c.budget || 0,
       spent: Math.max(0, catTotals[c.name] || 0),
       count: catEntries.length,
@@ -1741,7 +1847,8 @@ function confirmCloseMonth() {
   // Quando a bolsa cair, ela deve entrar como lançamento real e alterar esse saldo.
   state.availableBalanceBase = balanceToCarry;
   state.currentMonth = nextMonth;
-  state.entries = [];
+  // Mantém lançamentos antigos guardados. Eles ficam escondidos por padrão
+  // porque a aba Lançamentos mostra só o mês atual, mas aparecem ao filtrar datas antigas.
 
   saveState();
   closeModal();
@@ -1837,6 +1944,23 @@ function updateEmojiPreview(previewId, val) {
   if (el) el.textContent = val || (previewId.includes('new') ? '📦' : '');
 }
 
+function setChartSwitch(id, enabled) {
+  var el = document.getElementById(id);
+  if (!el) return;
+  el.classList.toggle('on', enabled !== false);
+}
+
+function getChartSwitch(id) {
+  var el = document.getElementById(id);
+  return !el || el.classList.contains('on');
+}
+
+function toggleChartSwitch(id) {
+  var el = document.getElementById(id);
+  if (!el) return;
+  el.classList.toggle('on');
+}
+
 // ── Add category screen ────────────────────────────────────────
 function renderAddCat() {
   selectedColor = PALETTE[0];
@@ -1844,6 +1968,7 @@ function renderAddCat() {
   document.getElementById('new-cat-name').value = '';
   document.getElementById('new-cat-budget').value = '';
   document.getElementById('new-emoji-preview').textContent = '📦';
+  setChartSwitch('new-cat-chart-toggle', true);
   renderColorGrid('new-color-grid', PALETTE[0]);
 }
 
@@ -1851,10 +1976,11 @@ function addCategory() {
   const icon   = document.getElementById('new-cat-icon').value.trim() || '📦';
   const name   = document.getElementById('new-cat-name').value.trim();
   const budget = parseFloat(document.getElementById('new-cat-budget').value) || 0;
+  const includeInChart = getChartSwitch('new-cat-chart-toggle');
   if (!name) { showToast('⚠️ Dá um nome à categoria'); return; }
   if (state.categories.find(c => c.name.toLowerCase() === name.toLowerCase())) {
     showToast('⚠️ Categoria já existe'); return; }
-  state.categories.push({ name, icon, budget, color: selectedColor });
+  state.categories.push({ name, icon, budget, color: selectedColor, includeInChart });
   saveState();
   showToast('✓ Categoria adicionada!');
   navigate('settings');
@@ -1869,6 +1995,7 @@ function openEditCat(idx) {
   document.getElementById('edit-emoji-preview').textContent = cat.icon;
   document.getElementById('edit-cat-name').value = cat.name;
   document.getElementById('edit-cat-budget').value = cat.budget;
+  setChartSwitch('edit-cat-chart-toggle', cat.includeInChart !== false);
   document.getElementById('edit-delete-btn').style.display = 'block';
   selectedColor = cat.color || catColor(idx);
   navigate('edit-cat');
@@ -1882,6 +2009,7 @@ function saveEditCategory() {
   cat.name   = document.getElementById('edit-cat-name').value.trim() || cat.name;
   cat.budget = parseFloat(document.getElementById('edit-cat-budget').value) || 0;
   cat.color  = selectedColor;
+  cat.includeInChart = getChartSwitch('edit-cat-chart-toggle');
   saveState();
   showToast('✓ Guardado!');
   navigate('settings');
@@ -2421,6 +2549,7 @@ function toggleHistDrawer(mid) {
   }
   var labels=[],data=[],colors=[];
   breakdown.forEach(function(c,i) {
+    if (c.includeInChart === false) return;
     if (c.spent > 0) { labels.push(c.icon+' '+c.name); data.push(c.spent); colors.push(c.color||catColor(i)); }
   });
   var remaining = Math.max(0, h.budget - h.spent);
@@ -2766,6 +2895,13 @@ document.addEventListener('touchcancel', function() {
 if (state.availableBalanceBase == null) {
   state.availableBalanceBase = (state.prevMonthSaved || 0) + totalBudget();
   saveState();
+}
+if (Array.isArray(state.categories)) {
+  let chartMigrationChanged = false;
+  state.categories.forEach(function(c) {
+    if (c.includeInChart == null) { c.includeInChart = true; chartMigrationChanged = true; }
+  });
+  if (chartMigrationChanged) saveState();
 }
 
 // Estado inicial: enquanto a tela de bloqueio está aberta, não armamos ainda o "voltar 2x".
