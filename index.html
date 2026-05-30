@@ -125,21 +125,22 @@ body {
 .kpi-card.amber { --accent:var(--amber); }
 .kpi-card.amber .kpi-value { color:var(--amber); }
 
-/* "Economizado total" — fits in the 2-col grid like the other cards, opens a drawer below the whole grid row */
-.kpi-drawer-block { display:contents; }
+/* "Economizado total" — block wraps card + drawer, lives in one grid cell */
+.kpi-drawer-block {
+  display:flex; flex-direction:column;
+}
 .kpi-drawer-card {
   width:100%; text-align:left; cursor:pointer; border:none;
-  font-family:'Sora',sans-serif;
-  /* Inherits .kpi-card styles; extra overrides: */
-  position:relative; overflow:hidden;
+  font-family:'Sora',sans-serif; position:relative; overflow:hidden;
 }
 .kpi-drawer-card.open { border-radius:var(--radius) var(--radius) 0 0; }
-.kpi-drawer-icon { color:var(--slate2); font-size:14px; position:absolute; top:10px; right:12px; transition:transform .35s cubic-bezier(.4,0,.2,1); }
+.kpi-drawer-icon {
+  color:var(--slate2); font-size:13px;
+  position:absolute; top:10px; right:10px;
+  transition:transform .35s cubic-bezier(.4,0,.2,1);
+}
 .kpi-drawer-card.open .kpi-drawer-icon { transform:rotate(180deg); }
 
-/* Drawer lives OUTSIDE the grid (after it) so it can span full width */
-.savings-drawer-wrap { padding:0 16px; margin-top:-6px; display:none; }
-.savings-drawer-wrap.open { display:block; }
 .savings-drawer {
   display:grid; grid-template-rows:0fr;
   transition:grid-template-rows .35s cubic-bezier(.4,0,.2,1), opacity .25s ease;
@@ -149,16 +150,16 @@ body {
 }
 .savings-drawer.open { grid-template-rows:1fr; opacity:1; }
 .savings-drawer > div { overflow:hidden; }
-.savings-inner { padding:12px; }
-.savings-scroll { max-height:180px; overflow-y:auto; display:flex; flex-direction:column; gap:8px; padding-right:2px; }
+.savings-inner { padding:10px; }
+.savings-scroll { max-height:200px; overflow-y:auto; display:flex; flex-direction:column; gap:6px; padding-right:2px; }
 .savings-mini {
   background:var(--bg3); border:1px solid var(--border);
-  border-radius:12px; padding:10px 12px;
-  display:flex; justify-content:space-between; align-items:center; gap:12px;
+  border-radius:10px; padding:9px 11px;
+  display:flex; justify-content:space-between; align-items:center; gap:8px;
 }
-.savings-month { font-size:13px; font-weight:700; text-transform:capitalize; }
-.savings-sub { font-size:11px; color:var(--slate); margin-top:2px; }
-.savings-val { font-size:14px; font-weight:800; font-variant-numeric:tabular-nums; white-space:nowrap; }
+.savings-month { font-size:12px; font-weight:700; text-transform:capitalize; }
+.savings-sub { font-size:10px; color:var(--slate); margin-top:2px; }
+.savings-val { font-size:13px; font-weight:800; font-variant-numeric:tabular-nums; white-space:nowrap; }
 .savings-val.positive { color:var(--emerald-l); }
 .savings-val.negative { color:var(--rose-l); }
 .savings-empty { font-size:12px; color:var(--slate); text-align:center; padding:10px; font-style:italic; }
@@ -919,7 +920,8 @@ body.swipe-lock {
       </div>
       <div class="form-group">
         <label class="form-label">Categoria</label>
-        <select class="form-select" id="inp-category"></select>
+        <select class="form-select" id="inp-category" onchange="onCategorySelectChange()"></select>
+        <div id="income-cat-hint" style="display:none;font-size:11px;color:var(--emerald-l);font-weight:600;margin-top:4px;padding:0 4px">💰 Categoria de entrada — valor será registado como positivo no saldo</div>
       </div>
       <div class="form-group">
         <label class="form-label">Observações</label>
@@ -1020,6 +1022,10 @@ body.swipe-lock {
       <div class="chart-toggle-title">Entrar no gráfico</div>
       <button type="button" class="toggle-switch on" id="new-cat-chart-toggle" onclick="toggleChartSwitch('new-cat-chart-toggle')" aria-label="Entrar no gráfico"></button>
     </div>
+    <div class="chart-toggle-row">
+      <div class="chart-toggle-title">Categoria de entrada 💰</div>
+      <button type="button" class="toggle-switch" id="new-cat-income-toggle" onclick="toggleChartSwitch('new-cat-income-toggle')" aria-label="Categoria de entrada"></button>
+    </div>
     <button class="save-edit-btn" onclick="addCategory()">+ Adicionar Categoria</button>
   </div>
 </div>
@@ -1053,6 +1059,10 @@ body.swipe-lock {
     <div class="chart-toggle-row">
       <div class="chart-toggle-title">Entrar no gráfico</div>
       <button type="button" class="toggle-switch on" id="edit-cat-chart-toggle" onclick="toggleChartSwitch('edit-cat-chart-toggle')" aria-label="Entrar no gráfico"></button>
+    </div>
+    <div class="chart-toggle-row">
+      <div class="chart-toggle-title">Categoria de entrada 💰</div>
+      <button type="button" class="toggle-switch" id="edit-cat-income-toggle" onclick="toggleChartSwitch('edit-cat-income-toggle')" aria-label="Categoria de entrada"></button>
     </div>
     <button class="save-edit-btn" onclick="saveEditCategory()">✓ Guardar Alterações</button>
     <button class="delete-cat-btn" id="edit-delete-btn" onclick="deleteEditCategory()">🗑 Remover Categoria</button>
@@ -1172,6 +1182,7 @@ function loadState() {
       let changed = false;
       s.categories.forEach(function(c) {
         if (c.includeInChart == null) { c.includeInChart = true; changed = true; }
+        if (c.isIncome == null) { c.isIncome = false; changed = true; }
       });
       if (changed) localStorage.setItem(STORAGE_KEY, JSON.stringify(s));
     }
@@ -1377,13 +1388,11 @@ function toggleSavingsDrawer(event) {
   savingsDrawerOpen = !savingsDrawerOpen;
   const card = document.getElementById('savings-kpi-card');
   const drawer = document.getElementById('savings-kpi-drawer');
-  const wrap = document.getElementById('savings-drawer-wrap');
   if (card) card.classList.toggle('open', savingsDrawerOpen);
-  if (wrap) wrap.classList.toggle('open', savingsDrawerOpen);
   if (drawer) {
     drawer.classList.toggle('open', savingsDrawerOpen);
     const scroll = drawer.querySelector('.savings-scroll');
-    if (scroll && savingsDrawerOpen) scroll.innerHTML = renderSavingsDrawerContent();
+    if (scroll) scroll.innerHTML = renderSavingsDrawerContent();
   }
 }
 
@@ -1414,34 +1423,21 @@ function renderDashboard() {
       <div class="kpi-label">Economizado este mês</div>
       <div class="kpi-value">${saved.toFixed(2).replace('.',',')} <span>€</span></div>
     </div>
-    <button type="button" class="kpi-card kpi-drawer-card ${balanceToneClass(historySaved)} fade-up ${savingsDrawerOpen ? 'open' : ''}" id="savings-kpi-card" onclick="toggleSavingsDrawer(event)">
-      <div class="kpi-label">Economizado total</div>
-      <div class="kpi-value">${historySaved.toFixed(2).replace('.',',')} <span>€</span></div>
-      <span class="kpi-drawer-icon">▾</span>
-    </button>
+    <div class="kpi-drawer-block fade-up">
+      <button type="button" class="kpi-card kpi-drawer-card ${balanceToneClass(historySaved)} ${savingsDrawerOpen ? 'open' : ''}" id="savings-kpi-card" onclick="toggleSavingsDrawer(event)">
+        <div class="kpi-label">Economizado total</div>
+        <div class="kpi-value">${historySaved.toFixed(2).replace('.',',')} <span>€</span></div>
+        <span class="kpi-drawer-icon">▾</span>
+      </button>
+      <div class="savings-drawer ${savingsDrawerOpen ? 'open' : ''}" id="savings-kpi-drawer">
+        <div><div class="savings-inner"><div class="savings-scroll">${renderSavingsDrawerContent()}</div></div></div>
+      </div>
+    </div>
     <div class="kpi-card ${balanceToneClass(availableBalance())} fade-up full">
       <div class="kpi-label">Saldo disponível</div>
       <div class="kpi-value">${availableBalance().toFixed(2).replace('.',',')} <span>€</span></div>
     </div>
   `;
-
-  // Drawer for savings history (placed outside grid so it spans full width)
-  let drawerWrap = document.getElementById('savings-drawer-wrap');
-  if (!drawerWrap) {
-    drawerWrap = document.createElement('div');
-    drawerWrap.id = 'savings-drawer-wrap';
-    drawerWrap.className = 'savings-drawer-wrap' + (savingsDrawerOpen ? ' open' : '');
-    drawerWrap.innerHTML = `<div class="savings-drawer ${savingsDrawerOpen ? 'open' : ''}" id="savings-kpi-drawer"><div><div class="savings-inner"><div class="savings-scroll">${renderSavingsDrawerContent()}</div></div></div></div>`;
-    kpiEl.parentNode.insertBefore(drawerWrap, kpiEl.nextSibling);
-  } else {
-    drawerWrap.className = 'savings-drawer-wrap' + (savingsDrawerOpen ? ' open' : '');
-    const d = document.getElementById('savings-kpi-drawer');
-    if (d) {
-      d.classList.toggle('open', savingsDrawerOpen);
-      const scroll = d.querySelector('.savings-scroll');
-      if (scroll) scroll.innerHTML = renderSavingsDrawerContent();
-    }
-  }
 
   // Category list with expandable mini-history
   const totals = getCategoryTotals();
@@ -1449,9 +1445,17 @@ function renderDashboard() {
   if (openDashboardCatIdx != null && !state.categories[openDashboardCatIdx]) openDashboardCatIdx = null;
   catEl.innerHTML = state.categories.map((cat, idx) => {
     const spent = totals[cat.name] || 0;
-    const pct = cat.budget > 0 ? Math.min(100, (spent / cat.budget) * 100) : 0;
-    const isOver = spent > cat.budget;
-    const color = isOver ? '#F43F5E' : catColor(idx);
+    const isIncome = cat.isIncome === true;
+    // Income categories: show the absolute value received, with emerald color
+    const displayAmt = isIncome ? Math.abs(spent) : spent;
+    const pct = (!isIncome && cat.budget > 0) ? Math.min(100, (spent / cat.budget) * 100) : 0;
+    const isOver = !isIncome && spent > cat.budget && cat.budget > 0;
+    const color = isIncome ? 'var(--emerald)' : (isOver ? '#F43F5E' : catColor(idx));
+    const amtColor = isIncome ? 'var(--emerald-l)' : (isOver ? 'var(--rose-l)' : 'var(--white)');
+    const subLabel = isIncome
+      ? '<div class="cat-budget" style="color:var(--emerald-l);opacity:.7">entrada</div>'
+      : `<div class="cat-budget">de ${fmt(cat.budget)}</div>`;
+    const incomeBadge = isIncome ? ' 💰' : '';
     const isOpen = openDashboardCatIdx === idx;
     const entries = currentMonthEntries()
       .filter(e => e.category === cat.name)
@@ -1472,19 +1476,17 @@ function renderDashboard() {
           <div class="cat-row-top">
             <div class="cat-name">
               <span class="cat-icon">${cat.icon}</span>
-              ${cat.name}
+              ${cat.name}${incomeBadge}
             </div>
             <div style="display:flex;align-items:center;gap:8px">
               <div class="cat-amounts">
-                <div class="cat-spent" style="color:${isOver ? 'var(--rose-l)' : 'var(--white)'}">${fmt(spent)}</div>
-                <div class="cat-budget">de ${fmt(cat.budget)}</div>
+                <div class="cat-spent" style="color:${amtColor}">${fmt(displayAmt)}</div>
+                ${subLabel}
               </div>
               <span class="cat-expand-icon">▾</span>
             </div>
           </div>
-          <div class="progress-bar">
-            <div class="progress-fill" style="width:${pct}%;background:${color}"></div>
-          </div>
+          ${!isIncome ? `<div class="progress-bar"><div class="progress-fill" style="width:${pct}%;background:${color}"></div></div>` : ''}
         </div>
         <div class="cat-entry-drawer ${isOpen ? 'open' : ''}">
           <div>
@@ -1663,6 +1665,14 @@ function updateFilterBtn() {
   btn.textContent = n ? '🔍 Filtro (' + n + ')' : '🔍 Filtro';
 }
 
+function onCategorySelectChange() {
+  const sel = document.getElementById('inp-category');
+  const hint = document.getElementById('income-cat-hint');
+  if (!sel || !hint) return;
+  const cat = state.categories.find(c => c.name === sel.value);
+  hint.style.display = (cat && cat.isIncome) ? 'block' : 'none';
+}
+
 function renderLancamentos() {
   document.getElementById('hdr-month2').textContent = fmtMonth(state.currentMonth).toUpperCase();
 
@@ -1672,7 +1682,8 @@ function renderLancamentos() {
 
   // Category select (in modal)
   const sel = document.getElementById('inp-category');
-  if (sel) sel.innerHTML = state.categories.map(c => '<option value="' + c.name + '">' + c.icon + ' ' + c.name + '</option>').join('');
+  if (sel) sel.innerHTML = state.categories.map(c => '<option value="' + c.name + '">' + c.icon + ' ' + c.name + (c.isIncome ? ' 💰' : '') + '</option>').join('');
+  onCategorySelectChange();
   renderEntryList();
 }
 
@@ -1700,11 +1711,15 @@ function renderEntryList() {
     return;
   }
 
-  el.innerHTML = sorted.map(e => `
+  el.innerHTML = sorted.map(e => {
+    const catDef = state.categories.find(c => c.name === e.category);
+    const isIncome = catDef && catDef.isIncome;
+    const incomeBadge = isIncome ? '<span style="font-size:9px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;color:var(--emerald-l);background:rgba(16,185,129,.12);border:1px solid rgba(16,185,129,.25);border-radius:4px;padding:1px 5px;margin-left:5px;vertical-align:middle">entrada</span>' : '';
+    return `
     <div class="entry-item" id="entry-${e.id}">
       <div class="entry-cat-icon">${getCatIcon(e.category)}</div>
       <div class="entry-info">
-        <div class="entry-cat">${e.category}</div>
+        <div class="entry-cat">${e.category}${incomeBadge}</div>
         <div class="entry-meta">${fmtDate(e.date)}${e.notes ? ' · ' + e.notes : ''}</div>
       </div>
       <div class="entry-amount ${e.amount < 0 ? 'negative' : 'positive'}">${fmt(e.amount)}</div>
@@ -1713,25 +1728,29 @@ function renderEntryList() {
         <button class="entry-delete" onclick="deleteEntry('${e.id}')">✕</button>
       </div>
     </div>
-  `).join('');
+  `}).join('');
 }
 
 function addEntry() {
   const date = document.getElementById('inp-date').value;
-  const amount = parseFloat(document.getElementById('inp-amount').value);
+  let amount = parseFloat(document.getElementById('inp-amount').value);
   const category = document.getElementById('inp-category').value;
   const notes = document.getElementById('inp-notes').value.trim();
 
   if (!date) { showToast('⚠️ Escolhe uma data'); return; }
   if (isNaN(amount) || amount === 0) { showToast('⚠️ Insere um valor válido'); return; }
 
+  // Categorias de entrada: valor sempre negativo (reduz o gasto, aumenta saldo)
+  const cat = state.categories.find(c => c.name === category);
+  if (cat && cat.isIncome && amount > 0) amount = -amount;
+
   if (editingId) {
     // Update existing entry
     const entry = state.entries.find(e => e.id === editingId);
     if (entry) { entry.date = date; entry.amount = amount; entry.category = category; entry.notes = notes; }
     saveState();
-    closeAddModal();   // close modal first
-    cancelEdit();      // then reset form
+    closeAddModal();
+    cancelEdit();
     renderEntryList();
     showToast('✓ Lançamento atualizado');
   } else {
@@ -2012,6 +2031,7 @@ function renderAddCat() {
   document.getElementById('new-cat-budget').value = '';
   document.getElementById('new-emoji-preview').textContent = '📦';
   setChartSwitch('new-cat-chart-toggle', true);
+  setChartSwitch('new-cat-income-toggle', false);
   renderColorGrid('new-color-grid', PALETTE[0]);
 }
 
@@ -2020,10 +2040,11 @@ function addCategory() {
   const name   = document.getElementById('new-cat-name').value.trim();
   const budget = parseFloat(document.getElementById('new-cat-budget').value) || 0;
   const includeInChart = getChartSwitch('new-cat-chart-toggle');
+  const isIncome = getChartSwitch('new-cat-income-toggle');
   if (!name) { showToast('⚠️ Dá um nome à categoria'); return; }
   if (state.categories.find(c => c.name.toLowerCase() === name.toLowerCase())) {
     showToast('⚠️ Categoria já existe'); return; }
-  state.categories.push({ name, icon, budget, color: selectedColor, includeInChart });
+  state.categories.push({ name, icon, budget, color: selectedColor, includeInChart, isIncome });
   saveState();
   showToast('✓ Categoria adicionada!');
   navigate('settings');
@@ -2039,6 +2060,7 @@ function openEditCat(idx) {
   document.getElementById('edit-cat-name').value = cat.name;
   document.getElementById('edit-cat-budget').value = cat.budget;
   setChartSwitch('edit-cat-chart-toggle', cat.includeInChart !== false);
+  setChartSwitch('edit-cat-income-toggle', cat.isIncome === true);
   document.getElementById('edit-delete-btn').style.display = 'block';
   selectedColor = cat.color || catColor(idx);
   navigate('edit-cat');
@@ -2053,6 +2075,7 @@ function saveEditCategory() {
   cat.budget = parseFloat(document.getElementById('edit-cat-budget').value) || 0;
   cat.color  = selectedColor;
   cat.includeInChart = getChartSwitch('edit-cat-chart-toggle');
+  cat.isIncome = getChartSwitch('edit-cat-income-toggle');
   saveState();
   showToast('✓ Guardado!');
   navigate('settings');
@@ -2943,6 +2966,7 @@ if (Array.isArray(state.categories)) {
   let chartMigrationChanged = false;
   state.categories.forEach(function(c) {
     if (c.includeInChart == null) { c.includeInChart = true; chartMigrationChanged = true; }
+    if (c.isIncome == null) { c.isIncome = false; chartMigrationChanged = true; }
   });
   if (chartMigrationChanged) saveState();
 }
