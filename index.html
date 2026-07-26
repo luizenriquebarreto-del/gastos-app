@@ -633,6 +633,45 @@ body {
 .filter-date-input:focus { border-color:var(--indigo); }
 .filter-clear { font-size:11px;color:var(--rose-l);font-weight:600;cursor:pointer;padding:4px 8px;white-space:nowrap; }
 
+/* ── Entry category chips (seleção direta, sem picker nativo) ── */
+.entry-cat-chips { display:flex; flex-wrap:wrap; gap:6px; }
+.entry-cat-chip {
+  padding:8px 13px; border-radius:99px; border:1px solid var(--border);
+  background:var(--bg2); color:var(--slate); font-family:'Sora',sans-serif;
+  font-size:12px; font-weight:600; cursor:pointer; white-space:nowrap;
+  transition:all .15s;
+}
+.entry-cat-chip.active { background:var(--indigo); border-color:var(--indigo); color:white; }
+.entry-cat-chip:active { transform:scale(.94); }
+
+/* Gaveta do Gasto: fica dentro da grid, colada abaixo da linha Gasto/Orçamento */
+#gasto-kpi-card.open { border-color:var(--indigo); border-bottom-color:transparent; }
+#gasto-drawer-outer .savings-drawer {
+  border-color:var(--indigo);
+  border-top:none;
+  border-radius:0 0 var(--radius) var(--radius);
+}
+
+/* ── Gasto drawer rows ── */
+.gasto-row {
+  background:var(--bg3); border:1px solid var(--border);
+  border-radius:12px; padding:12px 14px;
+  display:flex; justify-content:space-between; align-items:center; gap:10px;
+}
+.gasto-row-label { font-size:12px; color:var(--slate); font-weight:600; }
+.gasto-row-val { font-size:15px; font-weight:800; font-variant-numeric:tabular-nums; }
+.gasto-row.highlight { border-color:rgba(99,102,241,.5); }
+.gasto-row.highlight .gasto-row-val { color:var(--indigo-l); }
+
+/* ── Duplicate entry button ── */
+.entry-dup {
+  width:32px; height:32px; border-radius:8px; border:none;
+  background:rgba(16,185,129,.12); color:var(--emerald-l); font-size:15px;
+  display:flex; align-items:center; justify-content:center; cursor:pointer;
+  transition:all .15s; flex-shrink:0;
+}
+.entry-dup:active { transform:scale(.9); background:rgba(16,185,129,.25); }
+
 /* ── Add entry modal ── */
 .add-modal-backdrop {
   position:fixed; inset:0; z-index:200;
@@ -967,7 +1006,7 @@ body.swipe-lock {
       </div>
       <div class="form-group">
         <label class="form-label">Categoria</label>
-        <select class="form-select" id="inp-category" onchange="onCategorySelectChange()"></select>
+        <div class="entry-cat-chips" id="inp-category-chips"></div>
         <div id="income-cat-hint" style="display:none;font-size:11px;color:var(--emerald-l);font-weight:600;margin-top:4px;padding:0 4px">Categoria de entrada — valor registado como positivo no saldo</div>
       </div>
       <div class="form-group">
@@ -1284,6 +1323,8 @@ state.categories.forEach(cat => {
 saveState();
 let pieChart = null;
 let savingsDrawerOpen = false;
+let gastoDrawerOpen = false;
+let selectedEntryCategory = null;
 
 // ═══════════════════════════════════════════════════════
 //  HELPERS
@@ -1450,6 +1491,50 @@ function toggleDashboardCategory(idx, event) {
   });
 }
 
+// ── Gasto com/sem aluguel ──────────────────────────────
+function findRentCategory() {
+  return (state.categories || []).find(function(c) {
+    return normNoteSimple(c.name) === 'aluguel';
+  });
+}
+function normNoteSimple(str) {
+  return String(str || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
+}
+function rentSpent() {
+  const rentCat = findRentCategory();
+  if (!rentCat) return 0;
+  return currentMonthEntries()
+    .filter(e => e.category === rentCat.name && !isCreditEntry(e))
+    .reduce((s, e) => s + e.amount, 0);
+}
+
+function renderGastoDrawerContent() {
+  const spent = totalSpent();
+  const rentCat = findRentCategory();
+  if (!rentCat) {
+    return '<div class="savings-empty">Nenhuma categoria "Aluguel" encontrada.</div>';
+  }
+  const rent = rentSpent();
+  const withoutRent = spent - rent;
+  return ''
+    + '<div class="gasto-row"><span class="gasto-row-label">💸 Total (com aluguel)</span><span class="gasto-row-val">' + fmt(spent) + '</span></div>'
+    + '<div class="gasto-row"><span class="gasto-row-label">' + rentCat.icon + ' Aluguel</span><span class="gasto-row-val" style="color:var(--slate)">' + fmt(rent) + '</span></div>'
+    + '<div class="gasto-row highlight"><span class="gasto-row-label">✨ Gasto real (sem aluguel)</span><span class="gasto-row-val">' + fmt(withoutRent) + '</span></div>';
+}
+
+function toggleGastoDrawer(event) {
+  if (event) { event.preventDefault(); event.stopPropagation(); }
+  gastoDrawerOpen = !gastoDrawerOpen;
+  const card = document.getElementById('gasto-kpi-card');
+  const outer = document.getElementById('gasto-drawer-outer');
+  if (card) card.classList.toggle('open', gastoDrawerOpen);
+  if (outer) {
+    outer.classList.toggle('open', gastoDrawerOpen);
+    const scroll = outer.querySelector('.savings-scroll');
+    if (scroll) scroll.innerHTML = renderGastoDrawerContent();
+  }
+}
+
 function totalHistorySaved() {
   return (state.history || []).reduce(function(sum, h) {
     return sum + (Number(h.saved) || 0);
@@ -1498,14 +1583,18 @@ function renderDashboard() {
   // KPI cards — Saldo fica fora da grid, entre o drawer e o resto
   const kpiEl = document.getElementById('kpi-grid');
   kpiEl.innerHTML = `
-    <div class="kpi-card fade-up">
+    <button type="button" class="kpi-card kpi-drawer-card fade-up ${gastoDrawerOpen ? 'open' : ''}" id="gasto-kpi-card" onclick="toggleGastoDrawer(event)">
       <div class="kpi-label">Gasto</div>
       <div class="kpi-value">${spent.toFixed(2).replace('.',',')} <span>€</span></div>
-    </div>
+      <span class="kpi-drawer-icon">▾</span>
+    </button>
     <button class="kpi-card fade-up" onclick="editBudget()" style="text-align:left;cursor:pointer;border:none" title="Toca para editar">
       <div class="kpi-label">Orçamento ✏️</div>
       <div class="kpi-value">${budget.toFixed(2).replace('.',',')} <span>€</span></div>
     </button>
+    <div id="gasto-drawer-outer" class="savings-drawer-outer ${gastoDrawerOpen ? 'open' : ''}" style="grid-column:1/-1;margin:-10px 0 0">
+      <div><div class="savings-drawer"><div class="savings-inner"><div class="savings-scroll" style="max-height:none">${renderGastoDrawerContent()}</div></div></div></div>
+    </div>
     <div class="kpi-card ${balanceToneClass(saved)} fade-up">
       <div class="kpi-label">Economizado este mês</div>
       <div class="kpi-value">${saved.toFixed(2).replace('.',',')} <span>€</span></div>
@@ -1697,6 +1786,8 @@ function openAddModal() {
   const inp = document.getElementById('inp-date');
   if (inp && !editingId) inp.value = today;
   if (!editingId) setAmountSignButton(false);
+  renderEntryCatChips();
+  onCategorySelectChange();
   document.getElementById('add-modal').classList.add('open');
 }
 function closeAddModal(fromBack) {
@@ -1779,11 +1870,28 @@ function updateFilterBtn() {
   btn.textContent = n ? '🔍 Filtro (' + n + ')' : '🔍 Filtro';
 }
 
+function renderEntryCatChips() {
+  const el = document.getElementById('inp-category-chips');
+  if (!el) return;
+  if (!selectedEntryCategory || !state.categories.find(c => c.name === selectedEntryCategory)) {
+    selectedEntryCategory = state.categories.length ? state.categories[0].name : null;
+  }
+  el.innerHTML = state.categories.map(function(c) {
+    const active = c.name === selectedEntryCategory;
+    return '<button type="button" class="entry-cat-chip' + (active ? ' active' : '') + '" data-cat="' + escapeHtml(c.name) + '" onclick="selectEntryCategory(this.dataset.cat)">' + c.icon + ' ' + escapeHtml(c.name) + '</button>';
+  }).join('');
+}
+
+function selectEntryCategory(name) {
+  selectedEntryCategory = name;
+  renderEntryCatChips();
+  onCategorySelectChange();
+}
+
 function onCategorySelectChange() {
-  const sel = document.getElementById('inp-category');
   const hint = document.getElementById('income-cat-hint');
-  if (!sel || !hint) return;
-  const cat = state.categories.find(c => c.name === sel.value);
+  if (!hint) return;
+  const cat = state.categories.find(c => c.name === selectedEntryCategory);
   if (cat && cat.isCredit) {
     hint.style.display = 'block';
     hint.textContent = 'Crédito — só afeta o saldo disponível, não conta como gasto';
@@ -1802,9 +1910,8 @@ function renderLancamentos() {
   const today = new Date().toISOString().slice(0, 10);
   document.getElementById('inp-date').value = today;
 
-  // Category select (in modal)
-  const sel = document.getElementById('inp-category');
-  if (sel) sel.innerHTML = state.categories.map(c => '<option value="' + c.name + '">' + c.icon + ' ' + c.name + '</option>').join('');
+  // Category chips (in modal) — seleção direta no toque
+  renderEntryCatChips();
   onCategorySelectChange();
   renderEntryList();
 }
@@ -1904,6 +2011,7 @@ function renderEntryList() {
       </div>
       <div class="entry-amount ${e.amount < 0 ? 'negative' : 'positive'}">${fmt(e.amount)}</div>
       <div class="entry-btns">
+        <button class="entry-dup" onclick="duplicateEntry('${e.id}')" title="Duplicar">⧉</button>
         <button class="entry-edit" onclick="editEntry('${e.id}')">✏️</button>
         <button class="entry-delete" onclick="deleteEntry('${e.id}')">✕</button>
       </div>
@@ -1915,10 +2023,11 @@ function addEntry() {
   const date = document.getElementById('inp-date').value;
   // Parse amount — aceita negativo, vírgula/ponto e valores colados com €
   let amount = parseAmountText(document.getElementById('inp-amount').value);
-  const category = document.getElementById('inp-category').value;
+  const category = selectedEntryCategory;
   const notes = document.getElementById('inp-notes').value.trim();
 
   if (!date) { showToast('⚠️ Escolhe uma data'); return; }
+  if (!category) { showToast('⚠️ Escolhe uma categoria'); return; }
   if (isNaN(amount) || amount === 0) { showToast('⚠️ Insere um valor válido'); return; }
 
   // Categorias de entrada ou crédito: valor sempre negativo (reduz o total, aumenta saldo)
@@ -1966,7 +2075,9 @@ function editEntry(id) {
   document.getElementById('inp-date').value = entry.date;
   document.getElementById('inp-amount').value = entry.amount;
   onAmountInputChange();
-  document.getElementById('inp-category').value = entry.category;
+  selectedEntryCategory = entry.category;
+  renderEntryCatChips();
+  onCategorySelectChange();
   document.getElementById('inp-notes').value = entry.notes;
   document.getElementById('submit-btn').textContent = '✓ Salvar Alterações';
   document.getElementById('submit-btn').classList.add('editing');
@@ -1990,6 +2101,25 @@ function cancelEdit() {
   document.getElementById('submit-btn').textContent = '+ Adicionar Lançamento';
   document.getElementById('submit-btn').classList.remove('editing');
   document.getElementById('cancel-edit-btn').style.display = 'none';
+}
+
+function duplicateEntry(id) {
+  const entry = state.entries.find(e => e.id === id);
+  if (!entry) return;
+  // Duplica com a data de hoje se estiver no mês atual; senão mantém a data original
+  const today = new Date().toISOString().slice(0, 10);
+  const newDate = today.slice(0, 7) === state.currentMonth ? today : entry.date;
+  state.entries.push({
+    id: uid(),
+    date: newDate,
+    category: entry.category,
+    amount: entry.amount,
+    notes: entry.notes
+  });
+  saveState();
+  renderEntryList();
+  renderDashboard();
+  showToast('⧉ Lançamento duplicado');
 }
 
 function deleteEntry(id) {
@@ -2591,7 +2721,9 @@ async function setupBiometric() {
   bioAvailable = true;
   const storedCred = localStorage.getItem(CRED_KEY);
   if (storedCred) {
-    // Credential registered — bio choice button stays visible (already in HTML)
+    // Digital já registada — dispara o prompt automaticamente ao abrir o app.
+    // O botão continua visível como fallback caso o prompt seja cancelado ou o navegador exija um toque.
+    setTimeout(function() { tryBiometric(); }, 350);
   } else {
     // No credential yet — still show choice, but bio will register after PIN
     // bio-choice-btn stays visible; after PIN success offerBioRegister handles it
