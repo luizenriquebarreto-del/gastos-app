@@ -1535,24 +1535,60 @@ function toggleGastoDrawer(event) {
   }
 }
 
+// Créditos (bolsa/auxílios) que já entraram no mês corrente.
+// Como bolsa é sempre lançada na categoria de crédito, dá para isolá-la a qualquer momento.
+// Obs: créditos entram como valor NEGATIVO nos lançamentos (reduzem o gasto, aumentam o saldo).
+function currentMonthCredits() {
+  return currentMonthEntries()
+    .filter(isCreditEntry)
+    .reduce(function(s, e) { return s + e.amount; }, 0);
+}
+
+// "Economizado total" = dinheiro REAL acumulado de meses anteriores.
+// Definição: saldo disponível MENOS a bolsa/crédito que caiu neste mês.
+//   economizado = availableBalance() + currentMonthCredits()
+// (soma porque o crédito é negativo, então somar "remove" a bolsa do saldo)
+//
+// Por que não somar o h.saved do histórico (método antigo):
+//   h.saved = orçamento - gasto, que IGNORA auxílios extras. Num mês com
+//   muita bolsa/auxílio, o dinheiro que sobrou de verdade virava saldo
+//   carregado para o mês seguinte, mas não entrava no "economizado".
+//   Olhando o saldo real, toda essa sobra acumulada volta a ser contada.
 function totalHistorySaved() {
-  return (state.history || []).reduce(function(sum, h) {
-    return sum + (Number(h.saved) || 0);
-  }, 0);
+  return availableBalance() + currentMonthCredits();
 }
 
 function renderSavingsDrawerContent() {
+  const acumulado = totalHistorySaved();
+  const credits = currentMonthCredits(); // negativo
+  const bal = availableBalance();
+
+  // Cabeçalho: mostra a conta (saldo − bolsa do mês = acumulado real).
+  let html = '<div class="gasto-row highlight" style="margin-bottom:8px">'
+    + '<span class="gasto-row-label">💰 Acumulado real</span>'
+    + '<span class="gasto-row-val" style="color:var(--indigo-l)">' + fmt(acumulado) + '</span></div>';
+  html += '<div class="savings-sub" style="padding:0 2px 8px;line-height:1.5">'
+    + 'Dinheiro que sobrou de meses anteriores: o teu saldo disponível menos a bolsa/crédito que já caiu neste mês.</div>';
+  html += '<div class="gasto-row" style="margin-bottom:6px"><span class="gasto-row-label">🏦 Saldo disponível</span><span class="gasto-row-val" style="color:var(--slate)">' + fmt(bal) + '</span></div>';
+  if (credits < 0) {
+    html += '<div class="gasto-row" style="margin-bottom:6px"><span class="gasto-row-label">🎓 Bolsa/crédito deste mês</span><span class="gasto-row-val" style="color:var(--slate)">− ' + fmt(Math.abs(credits)) + '</span></div>';
+  }
+
+  // Histórico: quanto ficou abaixo do teto em cada mês (referência de disciplina).
   const hist = (state.history || []).slice().sort(function(a,b){ return b.month.localeCompare(a.month); });
-  if (!hist.length) return '<div class="savings-empty">Nenhum mês fechado ainda.</div>';
-  return hist.map(function(h) {
-    const saved = Number(h.saved) || 0;
-    const tone = savingsToneClass(saved, h.budget);
-    return '<div class="savings-mini ' + tone + '">'
-      + '<div><div class="savings-month">' + fmtMonth(h.month) + '</div>'
-      + '<div class="savings-sub">Gasto: ' + fmt(Number(h.spent)||0) + ' · Orçamento: ' + fmt(Number(h.budget)||0) + '</div></div>'
-      + '<div class="savings-val ' + tone + '">' + fmt(saved) + '</div>'
-      + '</div>';
-  }).join('');
+  if (hist.length) {
+    html += '<div class="savings-sub" style="padding:12px 2px 6px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;font-size:10px">Abaixo do teto por mês</div>';
+    html += hist.map(function(h) {
+      const saved = Number(h.saved) || 0;
+      const tone = savingsToneClass(saved, h.budget);
+      return '<div class="savings-mini ' + tone + '">'
+        + '<div><div class="savings-month">' + fmtMonth(h.month) + '</div>'
+        + '<div class="savings-sub">Gasto: ' + fmt(Number(h.spent)||0) + ' · Orçamento: ' + fmt(Number(h.budget)||0) + '</div></div>'
+        + '<div class="savings-val ' + tone + '">' + fmt(saved) + '</div>'
+        + '</div>';
+    }).join('');
+  }
+  return html;
 }
 
 function toggleSavingsDrawer(event) {
