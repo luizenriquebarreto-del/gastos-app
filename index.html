@@ -1116,6 +1116,11 @@ body.swipe-lock {
       <div class="chart-toggle-title">Só afeta saldo</div>
       <button type="button" class="toggle-switch" id="new-cat-credit-toggle" onclick="toggleChartSwitch('new-cat-credit-toggle')" aria-label="Só afeta saldo"></button>
     </div>
+    <div class="chart-toggle-row">
+      <div class="chart-toggle-title">Sai da poupança</div>
+      <button type="button" class="toggle-switch" id="new-cat-savings-toggle" onclick="toggleChartSwitch('new-cat-savings-toggle'); syncSavingsRow('new')" aria-label="Sai da poupança"></button>
+    </div>
+    <div class="savings-sub" style="margin:-4px 2px 8px;font-size:11px;line-height:1.5;color:var(--slate)">Saque da poupança: sai do saldo e abate o economizado total, mas não conta como gasto do mês.</div>
     <button class="save-edit-btn" onclick="addCategory()">+ Adicionar Categoria</button>
   </div>
 </div>
@@ -1158,6 +1163,11 @@ body.swipe-lock {
       <div class="chart-toggle-title">Só afeta saldo</div>
       <button type="button" class="toggle-switch" id="edit-cat-credit-toggle" onclick="toggleChartSwitch('edit-cat-credit-toggle')" aria-label="Só afeta saldo"></button>
     </div>
+    <div class="chart-toggle-row">
+      <div class="chart-toggle-title">Sai da poupança</div>
+      <button type="button" class="toggle-switch" id="edit-cat-savings-toggle" onclick="toggleChartSwitch('edit-cat-savings-toggle'); syncSavingsRow('edit')" aria-label="Sai da poupança"></button>
+    </div>
+    <div class="savings-sub" style="margin:-4px 2px 8px;font-size:11px;line-height:1.5;color:var(--slate)">Saque da poupança: sai do saldo e abate o economizado total, mas não conta como gasto do mês.</div>
     <button class="save-edit-btn" onclick="saveEditCategory()">✓ Guardar Alterações</button>
     <button class="delete-cat-btn" id="edit-delete-btn" onclick="deleteEditCategory()">🗑 Remover Categoria</button>
   </div>
@@ -1293,6 +1303,7 @@ function loadState() {
         if (c.includeInChart == null) { c.includeInChart = true; changed = true; }
         if (c.isIncome == null) { c.isIncome = false; changed = true; }
         if (c.isCredit == null) { c.isCredit = false; changed = true; }
+        if (c.isSavings == null) { c.isSavings = false; changed = true; }
       });
       if (changed) localStorage.setItem(STORAGE_KEY, JSON.stringify(s));
     }
@@ -1392,8 +1403,15 @@ function isCreditEntry(e) {
   return cat && cat.isCredit === true;
 }
 
-// Gasto = só lançamentos que NÃO são crédito
-const totalSpent = () => currentMonthEntries().filter(e => !isCreditEntry(e)).reduce((s, e) => s + e.amount, 0);
+// Saque da poupança: sai do saldo e abate o economizado total, mas NÃO conta
+// como gasto do mês nem mexe no economizado do mês (é como tirar da poupança).
+function isSavingsEntry(e) {
+  const cat = state.categories.find(c => c.name === e.category);
+  return cat && cat.isSavings === true;
+}
+
+// Gasto = só lançamentos que NÃO são crédito nem saque da poupança
+const totalSpent = () => currentMonthEntries().filter(e => !isCreditEntry(e) && !isSavingsEntry(e)).reduce((s, e) => s + e.amount, 0);
 const totalSaved = () => totalBudget() - totalSpent();
 
 // Saldo disponível = base − TODOS os lançamentos (incluindo créditos que aumentam o saldo)
@@ -1544,34 +1562,52 @@ function currentMonthCredits() {
     .reduce(function(s, e) { return s + e.amount; }, 0);
 }
 
-// "Economizado total" = dinheiro REAL acumulado de meses anteriores.
-// Definição: saldo disponível MENOS a bolsa/crédito que caiu neste mês.
-//   economizado = availableBalance() + currentMonthCredits()
-// (soma porque o crédito é negativo, então somar "remove" a bolsa do saldo)
-//
-// Por que não somar o h.saved do histórico (método antigo):
-//   h.saved = orçamento - gasto, que IGNORA auxílios extras. Num mês com
-//   muita bolsa/auxílio, o dinheiro que sobrou de verdade virava saldo
-//   carregado para o mês seguinte, mas não entrava no "economizado".
-//   Olhando o saldo real, toda essa sobra acumulada volta a ser contada.
+// Acumulado no início do mês (a poupança de antes), derivado do saldo atual.
+// Identidade: saldo = base − (gasto − bolsa)  =>  base = saldo + gasto + créditos(negativos).
+// Derivar do saldo mantém sempre coerente com o que a tela mostra, mesmo se o
+// saldo tiver sido editado à mão.
+function monthStartAccumulated() {
+  return availableBalance() + totalSpent() + currentMonthCredits();
+}
+
+// "Economizado total" = poupança de meses anteriores que NÃO se quer tocar.
+// Modelo: os gastos do mês saem da mesada (orçamento). A poupança só é tocada
+// quando os gastos passam do orçamento.
+//   economizado = acumulado_início − max(0, gasto − orçamento)
+// Enquanto o gasto fica dentro do orçamento, o economizado fica estável (não
+// cai só porque a bolsa ainda não caiu). No fechamento, o saldo que sobrou vira
+// a base do próximo mês, então o economizado do mês seguinte já começa com a
+// sobra da mesada incorporada.
 function totalHistorySaved() {
-  return availableBalance() + currentMonthCredits();
+  const base = monthStartAccumulated();
+  const overspend = Math.max(0, totalSpent() - totalBudget());
+  return base - overspend;
 }
 
 function renderSavingsDrawerContent() {
-  const acumulado = totalHistorySaved();
-  const credits = currentMonthCredits(); // negativo
-  const bal = availableBalance();
+  const economizado = totalHistorySaved();
+  const orc = totalBudget();
+  const spent = totalSpent();
+  const restante = orc - spent;          // sobra da mesada (pode ser negativo)
+  const overspend = Math.max(0, -restante);
 
-  // Cabeçalho: mostra a conta (saldo − bolsa do mês = acumulado real).
+  // Cabeçalho: a poupança em destaque.
   let html = '<div class="gasto-row highlight" style="margin-bottom:8px">'
-    + '<span class="gasto-row-label">💰 Acumulado real</span>'
-    + '<span class="gasto-row-val" style="color:var(--indigo-l)">' + fmt(acumulado) + '</span></div>';
-  html += '<div class="savings-sub" style="padding:0 2px 8px;line-height:1.5">'
-    + 'Dinheiro que sobrou de meses anteriores: o teu saldo disponível menos a bolsa/crédito que já caiu neste mês.</div>';
-  html += '<div class="gasto-row" style="margin-bottom:6px"><span class="gasto-row-label">🏦 Saldo disponível</span><span class="gasto-row-val" style="color:var(--slate)">' + fmt(bal) + '</span></div>';
-  if (credits < 0) {
-    html += '<div class="gasto-row" style="margin-bottom:6px"><span class="gasto-row-label">🎓 Bolsa/crédito deste mês</span><span class="gasto-row-val" style="color:var(--slate)">− ' + fmt(Math.abs(credits)) + '</span></div>';
+    + '<span class="gasto-row-label">💰 Economizado total</span>'
+    + '<span class="gasto-row-val" style="color:var(--indigo-l)">' + fmt(economizado) + '</span></div>';
+  html += '<div class="savings-sub" style="padding:0 2px 10px;line-height:1.5">'
+    + 'Dinheiro guardado de meses anteriores. Os teus gastos saem da mesada do mês, não daqui — a poupança só cai se passares do orçamento.</div>';
+
+  // Status da mesada do mês corrente.
+  html += '<div class="savings-sub" style="padding:2px 2px 6px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;font-size:10px">Mesada deste mês</div>';
+  html += '<div class="gasto-row" style="margin-bottom:6px"><span class="gasto-row-label">🎯 Orçamento</span><span class="gasto-row-val" style="color:var(--slate)">' + fmt(orc) + '</span></div>';
+  html += '<div class="gasto-row" style="margin-bottom:6px"><span class="gasto-row-label">💸 Já gasto</span><span class="gasto-row-val" style="color:var(--slate)">' + fmt(spent) + '</span></div>';
+  if (restante >= 0) {
+    html += '<div class="gasto-row highlight" style="margin-bottom:6px"><span class="gasto-row-label">✨ Ainda dá pra gastar</span><span class="gasto-row-val">' + fmt(restante) + '</span></div>';
+    html += '<div class="savings-sub" style="padding:2px 2px 8px;line-height:1.5">No fim do mês, o que sobrar da mesada vira economizado.</div>';
+  } else {
+    html += '<div class="gasto-row" style="margin-bottom:6px;border-color:rgba(244,63,94,.5)"><span class="gasto-row-label">⚠️ Passou do orçamento</span><span class="gasto-row-val" style="color:var(--rose-l)">− ' + fmt(overspend) + '</span></div>';
+    html += '<div class="savings-sub" style="padding:2px 2px 8px;line-height:1.5">Estes ' + fmt(overspend) + ' saíram da poupança — por isso o economizado baixou.</div>';
   }
 
   // Histórico: quanto ficou abaixo do teto em cada mês (referência de disciplina).
@@ -1681,19 +1717,22 @@ function renderDashboard() {
   catEl.innerHTML = state.categories.map((cat, idx) => {
     const spent = totals[cat.name] || 0;
     const isCredit = cat.isCredit === true;
-    const isIncome = cat.isIncome === true && !isCredit;
-    const isSpecial = isCredit || isIncome;
+    const isSavings = cat.isSavings === true;
+    const isIncome = cat.isIncome === true && !isCredit && !isSavings;
+    const isSpecial = isCredit || isIncome || isSavings;
     // Show absolute value for income/credit categories
     const displayAmt = isSpecial ? Math.abs(spent) : spent;
     const pct = (!isSpecial && cat.budget > 0) ? Math.min(100, (spent / cat.budget) * 100) : 0;
     const isOver = !isSpecial && spent > cat.budget && cat.budget > 0;
     const color = isSpecial ? 'var(--indigo)' : (isOver ? '#F43F5E' : catColor(idx));
-    const amtColor = isCredit ? 'var(--indigo-l)' : (isIncome ? 'var(--emerald-l)' : (isOver ? 'var(--rose-l)' : 'var(--white)'));
+    const amtColor = isCredit ? 'var(--indigo-l)' : (isIncome ? 'var(--emerald-l)' : (isSavings ? 'var(--amber)' : (isOver ? 'var(--rose-l)' : 'var(--white)')));
     const subLabel = isCredit
       ? '<div class="cat-budget" style="color:var(--indigo-l);opacity:.7">crédito</div>'
       : isIncome
         ? '<div class="cat-budget" style="color:var(--emerald-l);opacity:.7">entrada</div>'
-        : `<div class="cat-budget">de ${fmt(cat.budget)}</div>`;
+        : isSavings
+          ? '<div class="cat-budget" style="color:var(--amber);opacity:.8">poupança</div>'
+          : `<div class="cat-budget">de ${fmt(cat.budget)}</div>`;
     const isOpen = openDashboardCatIdx === idx;
     const entries = currentMonthEntries()
       .filter(e => e.category === cat.name)
@@ -1928,11 +1967,17 @@ function onCategorySelectChange() {
   const hint = document.getElementById('income-cat-hint');
   if (!hint) return;
   const cat = state.categories.find(c => c.name === selectedEntryCategory);
-  if (cat && cat.isCredit) {
+  if (cat && cat.isSavings) {
     hint.style.display = 'block';
+    hint.style.color = 'var(--amber)';
+    hint.textContent = 'Saque da poupança — sai do saldo e abate o economizado total, não conta como gasto';
+  } else if (cat && cat.isCredit) {
+    hint.style.display = 'block';
+    hint.style.color = '';
     hint.textContent = 'Crédito — só afeta o saldo disponível, não conta como gasto';
   } else if (cat && cat.isIncome) {
     hint.style.display = 'block';
+    hint.style.color = '';
     hint.textContent = 'Categoria de entrada — valor registado como positivo no saldo';
   } else {
     hint.style.display = 'none';
@@ -2476,6 +2521,18 @@ function syncCreditRow(prefix) {
   const row = document.getElementById(prefix + '-cat-credit-row');
   if (row) row.style.display = isOn ? 'flex' : 'none';
   if (!isOn) setChartSwitch(prefix + '-cat-credit-toggle', false);
+  // Entrada e saque da poupança são mutuamente exclusivos
+  if (isOn) setChartSwitch(prefix + '-cat-savings-toggle', false);
+}
+
+function syncSavingsRow(prefix) {
+  const on = getChartSwitch(prefix + '-cat-savings-toggle');
+  if (on) {
+    setChartSwitch(prefix + '-cat-income-toggle', false);
+    setChartSwitch(prefix + '-cat-credit-toggle', false);
+    const row = document.getElementById(prefix + '-cat-credit-row');
+    if (row) row.style.display = 'none';
+  }
 }
 
 function setChartSwitch(id, enabled) {
@@ -2505,6 +2562,7 @@ function renderAddCat() {
   setChartSwitch('new-cat-chart-toggle', true);
   setChartSwitch('new-cat-income-toggle', false);
   setChartSwitch('new-cat-credit-toggle', false);
+  setChartSwitch('new-cat-savings-toggle', false);
   document.getElementById('new-cat-credit-row').style.display = 'none';
   renderColorGrid('new-color-grid', PALETTE[0]);
 }
@@ -2514,12 +2572,13 @@ function addCategory() {
   const name   = document.getElementById('new-cat-name').value.trim();
   const budget = parseFloat(document.getElementById('new-cat-budget').value) || 0;
   const includeInChart = getChartSwitch('new-cat-chart-toggle');
-  const isIncome = getChartSwitch('new-cat-income-toggle');
+  const isSavings = getChartSwitch('new-cat-savings-toggle');
+  const isIncome = !isSavings && getChartSwitch('new-cat-income-toggle');
   const isCredit = isIncome && getChartSwitch('new-cat-credit-toggle');
   if (!name) { showToast('⚠️ Dá um nome à categoria'); return; }
   if (state.categories.find(c => c.name.toLowerCase() === name.toLowerCase())) {
     showToast('⚠️ Categoria já existe'); return; }
-  state.categories.push({ name, icon, budget, color: selectedColor, includeInChart, isIncome, isCredit });
+  state.categories.push({ name, icon, budget, color: selectedColor, includeInChart, isIncome, isCredit, isSavings });
   saveState();
   showToast('✓ Categoria adicionada!');
   navigate('settings');
@@ -2537,6 +2596,7 @@ function openEditCat(idx) {
   setChartSwitch('edit-cat-chart-toggle', cat.includeInChart !== false);
   setChartSwitch('edit-cat-income-toggle', cat.isIncome === true);
   setChartSwitch('edit-cat-credit-toggle', cat.isCredit === true);
+  setChartSwitch('edit-cat-savings-toggle', cat.isSavings === true);
   const creditRow = document.getElementById('edit-cat-credit-row');
   if (creditRow) creditRow.style.display = (cat.isIncome === true) ? 'flex' : 'none';
   document.getElementById('edit-delete-btn').style.display = 'block';
@@ -2553,7 +2613,8 @@ function saveEditCategory() {
   cat.budget = parseFloat(document.getElementById('edit-cat-budget').value) || 0;
   cat.color  = selectedColor;
   cat.includeInChart = getChartSwitch('edit-cat-chart-toggle');
-  cat.isIncome = getChartSwitch('edit-cat-income-toggle');
+  cat.isSavings = getChartSwitch('edit-cat-savings-toggle');
+  cat.isIncome = !cat.isSavings && getChartSwitch('edit-cat-income-toggle');
   cat.isCredit = cat.isIncome && getChartSwitch('edit-cat-credit-toggle');
   saveState();
   showToast('✓ Guardado!');
